@@ -1,0 +1,29 @@
+# Verified 2026-11-03: Standard, short context, non-regional endpoint.
+# https://developers.openai.com/api/docs/pricing
+# https://developers.openai.com/api/docs/models/gpt-6-luna
+# Actual cache read/write categories use their own rates from provider usage.
+# A 1.25 multiplier covers the documented 30-minute cache-write input rate.
+# Requests are deliberately capped far below the 272K long-context threshold.
+models:
+  primary_model:
+    provider: openai
+    model_id: gpt-6.1-sol
+    input_usd_per_million: "2.00"
+    output_usd_per_million: "10.00"
+    cached_input_usd_per_million: "0.10"
+    cache_write_usd_per_million: "2.50"
+    input_billing_multiplier: "1.25"
+    max_input_tokens: 16000
+    max_output_tokens: 4096
+    source: "https://developers.openai.com/api/docs/pricing (2026-11-03, Standard)"
+  economy_model:
+    provider: openai
+    model_id: gpt-6-luna
+    input_usd_per_million: "0.10"
+    output_usd_per_million: "0.50"
+    cached_input_usd_per_million: "0.01"
+    cache_write_usd_per_million: "0.125"
+    input_billing_multiplier: "1.25"
+    max_input_tokens: 16000
+    max_output_tokens: 4096
+    source: "https://developers.openai.com/api/docs/models/gpt-6-luna (2026-11-03, Standard)"

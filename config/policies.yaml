@@ -1,0 +1,24 @@
+tokenops:
+  enabled: true
+  redis_url: redis://localhost:6379/0
+  budget:
+    max_usd: "2.00"
+    max_tokens: 100000
+  policies:
+    cost_budget: {enabled: true, action: HALT}
+    pre_call_worst_case: {enabled: true, action: SHRINK_OR_HALT}
+    cost_guard: {enabled: true, threshold: "0.80", action: STEER}
+    step_cap: {enabled: true, max_steps: 100, max_calls: 100}
+    concurrency_cap:
+      enabled: true
+      max_parallel_calls: 5
+      action: QUEUE
+      queue_timeout_s: 5
+    progress_guard: {enabled: true, max_repeated_actions: 4, max_pattern_length: 8}
+  model_routing: {primary: primary_model, fallback: economy_model}
+  reliability:
+    fail_closed: true
+    request_timeout_s: 30
+    lease_s: 60
+    heartbeat_s: 10
+  observability: {enabled: true}

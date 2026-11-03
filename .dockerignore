@@ -1,0 +1,12 @@
+.git
+.venv
+.uv-cache
+.runtime
+.env
+graphify-out
+__pycache__
+*.egg-info
+.pytest_cache
+.ruff_cache
+dist
+build

@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, "yes", --appendfsync, always, --maxmemory-policy, noeviction]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+  demo:
+    build: .
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis: {condition: service_healthy}
+    profiles: [demo]
+  tests:
+    build: .
+    command: [python, -m, pytest, -q]
+    environment:
+      TEST_REDIS_URL: redis://redis:6379/15
+    depends_on:
+      redis: {condition: service_healthy}
+    profiles: [test]
+volumes:
+  redis-data:

@@ -1,0 +1,18 @@
+# Deliberately FICTIONAL rates: free, deterministic demonstrations only.
+models:
+  primary_model:
+    provider: fake
+    model_id: fake-primary
+    input_usd_per_million: "1000"
+    output_usd_per_million: "1000"
+    max_input_tokens: 10000
+    max_output_tokens: 1000
+    source: "FICTIONAL DEMO PRICING"
+  economy_model:
+    provider: fake
+    model_id: fake-economy
+    input_usd_per_million: "100"
+    output_usd_per_million: "100"
+    max_input_tokens: 10000
+    max_output_tokens: 1000
+    source: "FICTIONAL DEMO PRICING"
