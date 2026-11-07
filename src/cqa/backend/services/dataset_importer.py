@@ -39,7 +39,9 @@ async def fetch_organizer(settings, group_id, transport=None):
         raise ProviderError("Organizer endpoint configuration is invalid")
     # The signed URL is used verbatim. Never rewrite group_id or follow redirects.
     async with httpx.AsyncClient(
-        timeout=60, transport=transport, trust_env=False, follow_redirects=False
+        # Honor the managed environment's HTTPS proxy and trusted CA bundle.
+        # Disabling this prevents real organizer imports on proxy-only networks.
+        timeout=60, transport=transport, trust_env=True, follow_redirects=False
     ) as client:
         payload = await request_json(client, "GET", url)
     try:
