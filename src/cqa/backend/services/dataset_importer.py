@@ -1,6 +1,7 @@
 """Validated atomic imports. No transcript or signed URL is logged."""
 
 import hashlib
+from contextlib import nullcontext
 from urllib.parse import urlsplit
 
 import httpx
@@ -49,10 +50,10 @@ async def fetch_organizer(settings, group_id, transport=None):
         raise ProviderError("Organizer returned an invalid dataset") from exc
 
 
-def import_dataset(db, envelope: DatasetEnvelope):
+def import_dataset(db, envelope: DatasetEnvelope, *, session=None):
     dataset = envelope.data
     imported = 0
-    with db.sessions.begin() as session:
+    with nullcontext(session) if session is not None else db.sessions.begin() as session:
         for record in dataset.records:
             payload = record.model_dump(mode="json", exclude_unset=True)
             existing = session.get(Conversation, record.conversation_id)

@@ -138,6 +138,7 @@ class EvaluationCreate(Schema):
     checklist_id: str = Field(min_length=1, max_length=100)
     checklist_version: int = Field(ge=1)
     retry_failed: bool = False
+    force: bool = False
 
 
 class JobView(Schema):

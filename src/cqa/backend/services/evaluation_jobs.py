@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -51,8 +52,13 @@ def create_job(db, pipeline, settings, request):
             session, request.conversation_id, request.checklist_id, request.checklist_version
         )
         key = job_key(conversation, checklist, pipeline, settings)
-        existing = session.scalar(select(EvaluationJob).where(EvaluationJob.cache_key == key))
-        if existing:
+        existing = session.scalar(
+            select(EvaluationJob)
+            .where((EvaluationJob.cache_key == key) | EvaluationJob.cache_key.startswith(key + ":"))
+            .order_by(EvaluationJob.created_at.desc())
+            .limit(1)
+        )
+        if existing and not request.force:
             if request.retry_failed and existing.status == "failed":
                 existing.status = "pending"
                 existing.error_message = None
@@ -60,7 +66,7 @@ def create_job(db, pipeline, settings, request):
                 session.commit()
             return existing
         job = EvaluationJob(
-            cache_key=key,
+            cache_key=key if not request.force else key + ":" + uuid4().hex,
             conversation_id=conversation.conversation_id,
             checklist_id=checklist.checklist_id,
             checklist_version=checklist.version,

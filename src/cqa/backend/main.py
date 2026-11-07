@@ -4,11 +4,11 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -22,6 +22,7 @@ from cqa.backend.models import (
     EvaluationJob,
     ReviewHistory,
 )
+from cqa.backend.requests import AppealCreate, ReviewRequest
 from cqa.backend.schemas import (
     ChecklistCreate,
     ChecklistView,
@@ -39,7 +40,6 @@ from cqa.backend.services.dataset_importer import Conflict, fetch_organizer, imp
 from cqa.backend.services.evaluation_jobs import create_job, inputs, job_view
 from cqa.infra.llm import ProviderError, build_provider
 from cqa.infra.orchestrator.pipeline import (
-    Finding,
     MockEvaluator,
     Pipeline,
     ProviderCritic,
@@ -70,25 +70,6 @@ class EvaluationView(Schema):
     result_json: dict
     final_result_json: dict
     review_revision: int
-
-
-class AppealCreate(Schema):
-    evaluation_id: str = Field(min_length=1, max_length=100)
-    criterion_id: str = Field(min_length=1, max_length=100)
-    comment: str = Field(min_length=1, max_length=5000)
-
-
-class ReviewRequest(Schema):
-    decision: Literal["accepted", "rejected"]
-    reason: str = Field(min_length=1, max_length=5000)
-    base_revision: int = Field(ge=0)
-    replacement: Finding | None = None
-
-    @model_validator(mode="after")
-    def valid(self):
-        if (self.decision == "accepted") != (self.replacement is not None):
-            raise ValueError("Accepted review requires replacement; rejected review forbids it")
-        return self
 
 
 class AppealView(Schema):
@@ -159,7 +140,7 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Content-Type"],
         allow_credentials=False,
     )
@@ -193,11 +174,21 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
         app.add_exception_handler(exception, make_handler(code, detail))
 
     @app.get("/api/health", response_model=Health)
-    def health():
+    async def health():
         with db.sessions() as session:
             session.execute(select(1))
+        status = "mock" if pipeline.evaluator.is_mock else "configured"
+        if settings.llm_provider == "ollama":
+            try:
+                async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
+                    response = await client.get(settings.llm_base_url.rstrip("/") + "/api/tags")
+                    response.raise_for_status()
+                    names = [m["name"] for m in response.json()["models"]]
+                status = "ready" if pipeline.evaluator.model in names else "model_unavailable"
+            except (httpx.HTTPError, KeyError, TypeError, ValueError):
+                status = "model_unavailable"
         return Health(
-            status="ok",
+            status=status,
             provider=settings.llm_provider,
             model=pipeline.evaluator.model,
             is_mock=pipeline.evaluator.is_mock,
@@ -326,6 +317,9 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
                 .order_by(ReviewHistory.revision)
             ).all()
 
+    from cqa.backend.compat import install_compat
+
+    install_compat(app, db, pipeline, settings, transport)
     return app
 
 

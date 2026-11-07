@@ -97,7 +97,9 @@ class Worker:
                 conversation, checklist = inputs(
                     session, job.conversation_id, job.checklist_id, job.checklist_version
                 )
-                if job.cache_key != job_key(conversation, checklist, self.pipeline, self.settings):
+                if job.cache_key.split(":")[0] != job_key(
+                    conversation, checklist, self.pipeline, self.settings
+                ):
                     raise ValueError(
                         "Pipeline configuration changed; resubmit with current configuration"
                     )

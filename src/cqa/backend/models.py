@@ -60,7 +60,7 @@ class EvaluationJob(Base):
         ),
     )
     job_id: Mapped[str] = mapped_column(primary_key=True, default=identifier)
-    cache_key: Mapped[str] = mapped_column(String(64), unique=True)
+    cache_key: Mapped[str] = mapped_column(String(100), unique=True)
     conversation_id: Mapped[str] = mapped_column(ForeignKey(Conversation.conversation_id))
     checklist_id: Mapped[str]
     checklist_version: Mapped[int]
@@ -111,3 +111,31 @@ class ReviewHistory(Base):
     decision: Mapped[str]
     reason: Mapped[str]
     created_at: Mapped[str] = mapped_column(default=now)
+
+
+class WorkspaceState(Base):
+    """Presentation state only; imported data/results are projected from canonical tables."""
+
+    __tablename__ = "cqa_workspace"
+    workspace_id: Mapped[int] = mapped_column(primary_key=True)
+    revision: Mapped[int] = mapped_column(default=0)
+    body: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class WorkspaceChecklist(Base):
+    __tablename__ = "cqa_workspace_checklists"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["checklist_id", "checklist_version"],
+            ["cqa_checklists.checklist_id", "cqa_checklists.version"],
+        ),
+    )
+    ui_version: Mapped[int] = mapped_column(primary_key=True)
+    checklist_id: Mapped[str]
+    checklist_version: Mapped[int]
+
+
+class WorkspaceAppeal(Base):
+    __tablename__ = "cqa_workspace_appeals"
+    ui_id: Mapped[str] = mapped_column(primary_key=True)
+    appeal_id: Mapped[str] = mapped_column(ForeignKey(Appeal.appeal_id), unique=True)

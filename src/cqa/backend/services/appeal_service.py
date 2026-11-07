@@ -1,5 +1,6 @@
 """Append-only review snapshots; immutable original model output."""
 
+from contextlib import nullcontext
 from copy import deepcopy
 
 from sqlalchemy import select, update
@@ -20,8 +21,8 @@ def final_result(session, evaluation):
     return latest.final_result if latest else evaluation.result_json
 
 
-def create_appeal(db, request):
-    with db.sessions.begin() as session:
+def create_appeal(db, request, *, session=None):
+    with nullcontext(session) if session is not None else db.sessions.begin() as session:
         evaluation = session.get(Evaluation, request.evaluation_id)
         if not evaluation:
             raise LookupError()
@@ -31,11 +32,12 @@ def create_appeal(db, request):
             raise ValueError("Unknown criterion")
         appeal = Appeal(**request.model_dump())
         session.add(appeal)
+        session.flush()
     return appeal
 
 
-def review_appeal(db, pipeline, appeal_id, request):
-    with db.sessions.begin() as session:
+def review_appeal(db, pipeline, appeal_id, request, *, session=None):
+    with nullcontext(session) if session is not None else db.sessions.begin() as session:
         appeal = session.get(Appeal, appeal_id)
         if not appeal:
             raise LookupError()
