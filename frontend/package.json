@@ -1,15 +1,16 @@
 {
-  "name": "sana-cqa",
+  "name": "freedom-cqa",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "vite build --base=./",
     "preview": "vite preview --host 0.0.0.0",
     "test:smoke": "node tests/smoke.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/manrope": "^5.3.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

@@ -63,7 +63,15 @@ const names = {
 };
 function stored(k, f) {
   try {
-    return JSON.parse(localStorage.getItem(k)) ?? f;
+    const value = localStorage.getItem(k);
+    const legacyKey = k.startsWith("freedom-cqa-")
+      ? k.replace("freedom-cqa-", "sana-")
+      : null;
+    return (
+      JSON.parse(
+        value ?? (legacyKey ? localStorage.getItem(legacyKey) : null),
+      ) ?? f
+    );
   } catch {
     return f;
   }
@@ -158,13 +166,13 @@ function Modal({ title, onClose, children }) {
 export default function App() {
   const [page, setPage] = useState("overview"),
     [dialogs, setDialogs] = useState(() =>
-      stored("sana-dialogs", demoConversations),
+      stored("freedom-cqa-dialogs", demoConversations),
     ),
     [criteria, setCriteria] = useState(() =>
-      stored("sana-criteria", initialCriteria),
+      stored("freedom-cqa-criteria", initialCriteria),
     ),
-    [version, setVersion] = useState(() => stored("sana-version", 1)),
-    [appeals, setAppeals] = useState(() => stored("sana-appeals", []));
+    [version, setVersion] = useState(() => stored("freedom-cqa-version", 1)),
+    [appeals, setAppeals] = useState(() => stored("freedom-cqa-appeals", []));
   const [selected, setSelected] = useState(null),
     [search, setSearch] = useState(""),
     [lang, setLang] = useState("Все языки"),
@@ -173,17 +181,17 @@ export default function App() {
     [modal, setModal] = useState(null),
     [toast, setToast] = useState(""),
     [mobile, setMobile] = useState(false),
-    [period, setPeriod] = useState("Последние 7 дней"),
+    [period, setPeriod] = useState("Последние 7 оценок"),
     [highlight, setHighlight] = useState(null);
   useEffect(() => {
-    localStorage.setItem("sana-dialogs", JSON.stringify(dialogs));
+    localStorage.setItem("freedom-cqa-dialogs", JSON.stringify(dialogs));
   }, [dialogs]);
   useEffect(() => {
-    localStorage.setItem("sana-criteria", JSON.stringify(criteria));
-    localStorage.setItem("sana-version", JSON.stringify(version));
+    localStorage.setItem("freedom-cqa-criteria", JSON.stringify(criteria));
+    localStorage.setItem("freedom-cqa-version", JSON.stringify(version));
   }, [criteria, version]);
   useEffect(() => {
-    localStorage.setItem("sana-appeals", JSON.stringify(appeals));
+    localStorage.setItem("freedom-cqa-appeals", JSON.stringify(appeals));
   }, [appeals]);
   useEffect(() => {
     if (!toast) return;
@@ -214,6 +222,30 @@ export default function App() {
         )
       : 0,
     openAppeals = appeals.filter((a) => a.status === "open");
+  const criterionSummary = ["1", "2", "4", "5", "7"].map((id) => {
+    const criterion = initialCriteria.find((c) => c.id === id);
+    const values = evaluated.flatMap((d) => {
+      const r = d.results?.find((r) => r.criterionId === id);
+      if (!r || r.answer === "N/A") return [];
+      const snapshot = (d.criteriaSnapshot || initialCriteria).find(
+        (c) => c.id === id,
+      );
+      return snapshot?.type === "scale" && typeof r.answer === "number"
+        ? [(r.answer / Math.max(...snapshot.scale)) * 100]
+        : [r.answer === "Да" ? 100 : 0];
+    });
+    return {
+      label:
+        id === "4"
+          ? "Корректность консультации"
+          : id === "5"
+            ? "Эмпатия"
+            : criterion.title,
+      v: values.length
+        ? Math.round(values.reduce((a, b) => a + b, 0) / values.length)
+        : 0,
+    };
+  });
   function exportData() {
     const b = new Blob(
       [
@@ -233,7 +265,7 @@ export default function App() {
     );
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
-    a.download = "sana-report.json";
+    a.download = "freedom-quality-report.json";
     a.click();
     URL.revokeObjectURL(a.href);
     setToast("Отчёт экспортирован в JSON");
@@ -267,22 +299,24 @@ export default function App() {
             navigate("overview");
           }}
         >
-          <span className="brand-icon">
-            <Leaf size={24} />
+          <span className="freedom-symbol" aria-hidden="true">
+            f<span>•</span>
           </span>
-          sana<span className="brand-dot">.</span>
+          <span className="freedom-wordmark">
+            freedom<span>BROKER</span>
+          </span>
         </a>
         <div className="workspace">
           <span className="workspace-logo">
-            f<span>•</span>
+            <Activity size={18} />
           </span>
           <div>
-            <strong>Freedom Broker</strong>
-            <small>Рабочее пространство</small>
+            <strong>Quality Intelligence</strong>
+            <small>Аналитика диалогов</small>
           </div>
           <ChevronsUpDown size={15} />
         </div>
-        <div className="nav-label">ПЛАТФОРМА</div>
+        <div className="nav-label">ВАШЕ РАБОЧЕЕ ПРОСТРАНСТВО</div>
         <nav>
           {Object.entries(names).map(([key, title]) => {
             const Icon = icons[key];
@@ -307,10 +341,10 @@ export default function App() {
             <span className="insight-icon">
               <Sparkles size={18} />
             </span>
-            <strong>Замечайте больше.</strong>
-            <p>Каждый разговор — источник новых возможностей.</p>
-            <button onClick={() => navigate("agents")}>
-              Познакомиться с ИИ <ArrowUpRight size={15} />
+            <strong>Ваш стандарт качества.</strong>
+            <p>Настройте критерии под задачи вашей команды.</p>
+            <button onClick={() => navigate("criteria")}>
+              Настроить чек-лист <ArrowUpRight size={15} />
             </button>
           </div>
           <button
@@ -350,7 +384,7 @@ export default function App() {
             >
               <Menu size={20} />
             </button>
-            <span>Рабочее пространство</span>
+            <span>Freedom Broker</span>
             <ChevronRight size={14} />
             <strong>{names[page]}</strong>
           </div>
@@ -561,14 +595,14 @@ export default function App() {
               <div className="page-heading">
                 <div>
                   <div className="eyebrow">
-                    CONVERSATION INTELLIGENCE <span>✦</span>
+                    FREEDOM BROKER / QUALITY INTELLIGENCE
                   </div>
                   <h1>
                     {page === "overview" ? "Обзор качества" : names[page]}
                   </h1>
                   <p>
                     {page === "overview"
-                      ? "Хорошие разговоры начинаются с понимания. Вот ваша общая картина."
+                      ? "Вся картина клиентского сервиса. От первого сообщения до результата."
                       : page === "conversations"
                         ? "Все разговоры, важные детали и возможности для роста."
                         : page === "criteria"
@@ -620,6 +654,11 @@ export default function App() {
               </div>
               {page === "overview" && (
                 <>
+                  <FreedomHero
+                    average={average}
+                    count={evaluated.length}
+                    onOpen={() => navigate("conversations")}
+                  />
                   <div className="toolbar overview-toolbar">
                     <div className="segmented">
                       <button className="selected">Общая аналитика</button>
@@ -632,8 +671,8 @@ export default function App() {
                       value={period}
                       onChange={(e) => setPeriod(e.target.value)}
                     >
-                      <option>Последние 7 дней</option>
-                      <option>Последние 30 дней</option>
+                      <option>Последние 7 оценок</option>
+                      <option>Все оценки</option>
                     </select>
                   </div>
                   <div className="stats-grid">
@@ -649,6 +688,10 @@ export default function App() {
                       suffix="/100"
                       icon={Activity}
                       note="по завершённым оценкам"
+                      sparkline={evaluated
+                        .slice(0, 8)
+                        .reverse()
+                        .map((d) => d.score)}
                       green
                     />
                     <Stat
@@ -672,18 +715,19 @@ export default function App() {
                     <section className="panel trend-panel">
                       <div className="panel-heading">
                         <div>
-                          <h2>Качество в динамике</h2>
-                          <p>Каждый день — чуть лучше</p>
+                          <h2>Качество диалогов</h2>
+                          <p>Каждая оценка — часть общей картины</p>
                         </div>
                         <div className="chart-legend">
                           <span />
-                          Средняя оценка{" "}
+                          Оценка диалога
+                          <i className="mean-marker" /> Среднее
                           <button
                             className="icon-button"
                             aria-label="Объяснение графика"
                             onClick={() =>
                               setToast(
-                                "График иллюстрирует демо-динамику. Реальные временные ряды подключаются через API.",
+                                "График построен по оценкам диалогов из текущего набора. Набор демонстрационный.",
                               )
                             }
                           >
@@ -691,11 +735,11 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                      <Trend period={period} />
+                      <Trend period={period} dialogs={evaluated} />
                       <div className="chart-foot">
                         <span>
-                          <span className="tiny-star">✦</span> Демо-динамика
-                          качества разговоров
+                          <span className="tiny-star">✦</span> Рассчитано по
+                          текущему набору
                         </span>
                         <span>Шкала 0–100</span>
                       </div>
@@ -714,13 +758,7 @@ export default function App() {
                       <p className="panel-subtitle">
                         Где всё хорошо, а где есть потенциал
                       </p>
-                      {[
-                        { label: "Установление контакта", v: 96 },
-                        { label: "Выявление потребности", v: 84 },
-                        { label: "Корректность консультации", v: 78 },
-                        { label: "Эмпатия", v: 92 },
-                        { label: "Завершение диалога", v: 72 },
-                      ].map((c, i) => (
+                      {criterionSummary.map((c, i) => (
                         <div className="progress-item" key={c.label}>
                           <div>
                             <span>{c.label}</span>
@@ -733,8 +771,7 @@ export default function App() {
                             <span
                               style={{
                                 width: c.v + "%",
-                                background:
-                                  i === 2 || i === 4 ? "#d5a77b" : undefined,
+                                background: c.v < 90 ? "#dba04b" : undefined,
                               }}
                             />
                           </div>
@@ -747,7 +784,7 @@ export default function App() {
                         Все {criteria.length} критериев <ArrowRight size={14} />
                       </button>
                       <small className="demo-caption">
-                        Иллюстративные показатели
+                        По оценённым диалогам
                       </small>
                     </section>
                   </div>
@@ -1162,7 +1199,8 @@ export default function App() {
               )}
               <footer className="page-footer">
                 <span>
-                  <Leaf size={13} /> sana — больше смысла в каждом разговоре
+                  <ShieldCheck size={14} /> Freedom Broker · Quality
+                  Intelligence
                 </span>
                 <span>
                   RU · KZ · EN <span className="dot-sep">•</span> CQA workspace
@@ -1193,7 +1231,7 @@ export default function App() {
                   : modal.type === "decision"
                     ? "Решение проверяющего"
                     : modal.type === "help"
-                      ? "Как работает Sana"
+                      ? "Как работает Freedom Quality"
                       : modal.type === "profile"
                         ? "Ваше рабочее пространство"
                         : "Уведомления"
@@ -1339,7 +1377,16 @@ export default function App() {
     </div>
   );
 }
-function Stat({ title, value, suffix, icon: Icon, note, green, orange }) {
+function Stat({
+  title,
+  value,
+  suffix,
+  icon: Icon,
+  note,
+  green,
+  orange,
+  sparkline = [],
+}) {
   return (
     <article className={"panel stat " + (green ? "featured" : "")}>
       <div className="stat-top">
@@ -1351,7 +1398,13 @@ function Stat({ title, value, suffix, icon: Icon, note, green, orange }) {
       <div className="stat-value">
         {value}
         <span>{suffix}</span>
-        {green && <span className="mini-spark">▁▂▂▄▃▅▆▇</span>}
+        {green && (
+          <span className="stat-sparkline" aria-hidden="true">
+            {sparkline.map((v, i) => (
+              <i key={i} style={{ height: 4 + v * 0.21 }} />
+            ))}
+          </span>
+        )}
       </div>
       <div className="stat-note">
         <span className={orange ? "orange-dot" : "green-dot"} />
@@ -1360,95 +1413,191 @@ function Stat({ title, value, suffix, icon: Icon, note, green, orange }) {
     </article>
   );
 }
-function Trend({ period }) {
-  const month = period.includes("30");
+function FreedomHero({ average, count, onOpen }) {
+  return (
+    <section className="freedom-hero" aria-label="Freedom Quality Intelligence">
+      <div className="hero-copy">
+        <span className="hero-kicker">
+          <span />
+          FREEDOM QUALITY
+        </span>
+        <h2>
+          Сильный сервис.
+          <br />
+          <span>В каждом диалоге.</span>
+        </h2>
+        <p>
+          Понимайте клиентов. Поддерживайте команду.
+          <br />
+          Превращайте разговоры в точные решения.
+        </p>
+        <button onClick={onOpen}>
+          Перейти к диалогам <ArrowUpRight size={17} />
+        </button>
+      </div>
+      <div className="hero-visual" aria-hidden="true">
+        <div className="hero-orbit orbit-one" />
+        <div className="hero-orbit orbit-two" />
+        <span className="hero-orbit-dot" />
+        <div className="hero-score-card">
+          <div className="hero-score-label">
+            <ShieldCheck size={15} />
+            КАЧЕСТВО СЕРВИСА
+          </div>
+          <div className="hero-score-value">
+            <svg viewBox="0 0 120 120">
+              <circle
+                cx="60"
+                cy="60"
+                r="51"
+                fill="none"
+                stroke="#ffffff12"
+                strokeWidth="6"
+              />
+              <circle
+                cx="60"
+                cy="60"
+                r="51"
+                fill="none"
+                stroke="#8bd736"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeDasharray={`${average * 3.204} 320.4`}
+                transform="rotate(-90 60 60)"
+              />
+            </svg>
+            <div>
+              <strong>{average}</strong>
+              <span>из 100 баллов</span>
+            </div>
+          </div>
+          <div className="hero-score-bottom">
+            <span />
+            На основе {count} диалогов
+          </div>
+        </div>
+        <div className="hero-floating">
+          <CheckCheck size={15} /> Решения с доказательствами
+        </div>
+      </div>
+    </section>
+  );
+}
+function Trend({ period, dialogs }) {
+  const rows = (period === "Все оценки" ? dialogs : dialogs.slice(0, 7))
+    .slice()
+    .reverse();
+  const [active, setActive] = useState(null);
+  const index = Math.min(active ?? rows.length - 1, rows.length - 1);
+  const point = rows[index];
+  const x = (i) => (rows.length > 1 ? 20 + (i * 660) / (rows.length - 1) : 350);
+  const y = (value) => 180 - value * 1.6;
+  const line = rows
+    .map((d, i) => `${i ? "L" : "M"} ${x(i)} ${y(d.score)}`)
+    .join(" ");
+  const average = rows.length
+    ? rows.reduce((a, d) => a + d.score, 0) / rows.length
+    : 0;
+  if (!rows.length)
+    return (
+      <div className="empty-state">
+        <Activity />
+        <p>Оценки появятся после обработки диалогов.</p>
+      </div>
+    );
   return (
     <div className="trend-chart">
       <div className="y-labels">
-        <span>100</span>
-        <span>80</span>
-        <span>60</span>
-        <span>40</span>
+        {[100, 75, 50, 25, 0].map((v) => (
+          <span key={v}>{v}</span>
+        ))}
       </div>
       <div className="plot">
         <svg
           viewBox="0 0 700 190"
           preserveAspectRatio="none"
           role="img"
-          aria-label="Демонстрационный график динамики качества"
+          aria-label="График оценок диалогов"
         >
           <defs>
             <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#81c6aa" stopOpacity=".27" />
-              <stop offset="100%" stopColor="#81c6aa" stopOpacity=".015" />
+              <stop offset="0%" stopColor="#75b92c" stopOpacity=".18" />
+              <stop offset="100%" stopColor="#75b92c" stopOpacity=".01" />
             </linearGradient>
           </defs>
-          {[20, 70, 120, 170].map((y) => (
+          {[20, 60, 100, 140, 180].map((yy) => (
             <line
-              key={y}
+              key={yy}
               x1="0"
-              y1={y}
+              y1={yy}
               x2="700"
-              y2={y}
-              stroke="#edf0ed"
-              strokeDasharray="4 5"
+              y2={yy}
+              stroke="#e9edeb"
+              strokeDasharray="3 5"
             />
           ))}
           <path
-            d={
-              month
-                ? "M0 135 C40 120 70 155 110 120 S180 70 230 85 S300 125 350 75 S440 105 470 55 S560 80 590 45 S650 70 700 30 L700 190 L0 190Z"
-                : "M0 135 C45 135 65 75 115 91 S185 135 230 90 S300 55 350 72 S420 83 470 48 S550 78 590 50 S650 38 700 20 L700 190 L0 190Z"
-            }
+            d={`${line} L ${x(rows.length - 1)} 190 L ${x(0)} 190 Z`}
             fill="url(#area)"
           />
-          <path
-            d={
-              month
-                ? "M0 135 C40 120 70 155 110 120 S180 70 230 85 S300 125 350 75 S440 105 470 55 S560 80 590 45 S650 70 700 30"
-                : "M0 135 C45 135 65 75 115 91 S185 135 230 90 S300 55 350 72 S420 83 470 48 S550 78 590 50 S650 38 700 20"
-            }
-            fill="none"
-            stroke="#3c9372"
-            strokeWidth="2.7"
-          />
           <line
-            x1="470"
-            y1="15"
-            x2="470"
-            y2="185"
-            stroke="#b4d6c4"
-            strokeDasharray="4 4"
+            x1="0"
+            y1={y(average)}
+            x2="700"
+            y2={y(average)}
+            stroke="#adb8ad"
+            strokeDasharray="5 5"
           />
-          <circle
-            cx="470"
-            cy={month ? 55 : 48}
-            r="5"
-            fill="#fff"
-            stroke="#3c9372"
+          <path
+            d={line}
+            fill="none"
+            stroke="#64aa26"
             strokeWidth="3"
+            strokeLinejoin="round"
           />
+          {rows.map((d, i) => (
+            <g key={d.id}>
+              <circle
+                cx={x(i)}
+                cy={y(d.score)}
+                r={i === index ? 6 : 4}
+                fill="white"
+                stroke="#64aa26"
+                strokeWidth={i === index ? 3 : 2}
+              />
+              <circle
+                cx={x(i)}
+                cy={y(d.score)}
+                r="18"
+                fill="transparent"
+                tabIndex="0"
+                role="button"
+                aria-label={`${d.id}: ${d.score} баллов`}
+                onMouseEnter={() => setActive(i)}
+                onFocus={() => setActive(i)}
+                onClick={() => setActive(i)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setActive(i);
+                }}
+              />
+            </g>
+          ))}
         </svg>
-        <div className="chart-tooltip">
-          <small>{month ? "20 октября" : "5 ноября"}</small>
+        <div
+          className="chart-tooltip"
+          style={{
+            left: `${Math.max(0, Math.min(70, (x(index) / 700) * 100 - 9))}%`,
+          }}
+        >
+          <small>{point.id}</small>
           <strong>
-            {month ? "86" : "89"} <span>баллов</span>
+            {point.score}
+            <span> / 100</span>
           </strong>
         </div>
         <div className="x-labels">
-          {(month
-            ? [
-                "9 окт",
-                "14 окт",
-                "19 окт",
-                "24 окт",
-                "29 окт",
-                "3 ноя",
-                "7 ноя",
-              ]
-            : ["1 ноя", "2 ноя", "3 ноя", "4 ноя", "5 ноя", "6 ноя", "7 ноя"]
-          ).map((d) => (
-            <span key={d}>{d}</span>
+          {rows.map((d) => (
+            <span key={d.id}>#{d.id.split("-").at(-1)}</span>
           ))}
         </div>
       </div>
