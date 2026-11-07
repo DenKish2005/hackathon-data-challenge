@@ -1,4 +1,4 @@
-# Freedom Broker · Quality Intelligence
+# Freedom CQA
 
 ![Analytics for one selected dialogue](docs/freedom-dialogue.png)
 
@@ -101,22 +101,24 @@ The application starts at a desktop control desk based on the supplied sketch: c
 
 The dropdown switches the entire analysis to another conversation. `#dialog/<id>` links survive page reload and browser back/forward. A pending imported dialogue has no fabricated score or findings. The **Отчёт** action exports only the selected dialogue and its associated appeals; the list's export includes the dataset. Aggregate statistics remain a separate secondary section.
 
-## GitHub Pages publishing
+## Vercel publishing
 
-The repository workflow `.github/workflows/frontend-pages.yml` builds and publishes the frontend on pushes to `main` affecting the frontend, and supports manual runs. It uses official GitHub Pages actions and the workflow-provided token; no personal token or application secret is embedded.
+The Vercel project uses the repository root, root `vercel.json`, `npm --prefix frontend ci --include=dev`, and `frontend/dist`. This keeps the shared checklist JSON available during build. See [deployment instructions](../docs/VERCEL_DEPLOY.md).
 
-A repository administrator must enable **Settings → Pages → Build and deployment → Source: GitHub Actions** once. If an earlier run failed because Pages was disabled, rerun **Publish Freedom CQA to GitHub Pages** after saving that setting. The expected project address is `https://denkish2005.github.io/hackathon-data-challenge/`; treat it as published only after the deployment job succeeds.
+The Vercel API proxy uses a fixed trusted HTTPS backend and protected site credentials. Missing configuration returns a truthful503; it never substitutes an HTML page or prepared score. Python/Ollama and durable storage need a separately reachable backend. Credentials and signed organizer URLs never belong in the browser bundle.
 
-The production build uses relative asset paths, and hash routes work at a repository subpath. No server-side API or model is deployed by this workflow: it publishes the frontend prototype.
+## Freedom desktop workspace
 
-The supplied `https://fbroker.kz/statistics` reference could not be captured in this environment because outbound policy denied that destination. The flow and Freedom-inspired styling were verified on the local implementation, not against a captured copy of that page.
+The selected visual references are the user's dark Freedom Bank screenshots; the CQA presentation still grounds the workflow. `ConversationAnalysis.jsx` implements the conversation review: actual message chronology, transcript on the left, a computed score and all eight checklist results on the right. Clicking a criterion shows one explanation and a source quote; evidence actions highlight and focus the real message. The timeline represents messages, not a fabricated audio waveform. An audio player appears only when an actual audio URL is present.
 
-## Light desktop workspace
-
-The selected reference is the user's photograph of the Freedom quality-control presentation. `ConversationAnalysis.jsx` implements the conversation review: actual message chronology, transcript on the left, a computed score and all eight checklist results on the right. Clicking a criterion shows one explanation and a source quote; evidence actions highlight and focus the real message. The timeline represents messages, not a fabricated audio waveform. An audio player appears only when an actual audio URL is present.
-
-The green CQA rail and white canvas follow the presentation. The existing Freedom shield PNG is served locally, including as the favicon; see [asset source](public/freedom-logo-source.md). Roboto is self-hosted and is not claimed to be the official brand font. `presentation.css` scopes the current review layout and shared desktop shell; existing forms and other screens retain their base styles.
+The near-black canvas, graphite rail, white Freedom wordmark and vivid green actions follow the selected brand reference. The existing Freedom shield PNG is served locally, including as the favicon; see [asset source](public/freedom-logo-source.md). Roboto is self-hosted and is not claimed to be the official brand font. `presentation.css` defines the review layout, and `freedom-theme.css` supplies the current dark brand colours. Selection and call playback have their own scoped styles.
 
 `SelectionDesk.jsx` owns the explicit choose → open analysis flow. Existing evaluation snapshots, N/A normalization, critical flags, appeals, import/export and backend controls remain connected. Advanced AI execution/history is below the review in a disclosure. No dialogue is preselected on a fresh visit, and pending dialogues never receive invented scores.
 
 The frontend contract test uses mocked model responses to verify the real request shape, visible server errors and applied results. It does not measure model accuracy. See [design verification](design-qa.md) for screenshots and checks.
+
+## Reliability and calls
+
+`tests/reliability.mjs` covers missing/critical results, blocked storage, corrupt stored types, typing focus, JS-load failure, appeals without UUID support and double-submit, organizer loading, phone playback/seek/waveform and numeric ID rejection. The audio fixture is generated PCM, not an organizer recording or an accuracy measurement.
+
+For the complete local frontend+API, run `python scripts/run-cqa.py` from the repository root. This avoids a stale dev process with a missing proxy. Private configuration is `.env.cqa`, ignored by Git.

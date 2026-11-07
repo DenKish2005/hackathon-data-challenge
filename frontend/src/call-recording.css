@@ -1,0 +1,158 @@
+.call-recording {
+  background: var(--surface, #171d19);
+  border: 1px solid var(--border, #2b3730);
+  border-radius: 10px;
+  padding: 17px 20px 16px;
+  margin: 0 0 18px;
+  min-width: 0;
+  color: var(--text, #eff5f0);
+}
+.call-recording-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.call-recording-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.call-recording-heading svg {
+  color: var(--accent, #0dcd62);
+  flex-shrink: 0;
+}
+.call-recording-heading h2 {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  margin: 0;
+}
+.call-recording-heading > div > span {
+  font-size: 10px;
+  color: var(--muted, #9eada2);
+  margin-left: 5px;
+}
+.call-recording-heading > a {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: #9bc9ab;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.call-recording-heading > a:hover {
+  color: #d1f3dd;
+}
+.call-recording-player {
+  display: block;
+  width: 100%;
+  height: 42px;
+  color-scheme: dark;
+  border-radius: 6px;
+}
+.call-recording-empty {
+  font-size: 12px;
+  color: var(--muted, #9eada2);
+  line-height: 1.6;
+  margin: 0;
+}
+.call-recording-wave-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.call-recording-wave-action > button,
+.call-recording-error > button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  background: #1b3022;
+  color: #a9d2b7;
+  border: 1px solid #34503c;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.call-recording-wave-action > button:hover:not(:disabled),
+.call-recording-error > button:hover {
+  background: #264631;
+  color: #d6efdf;
+}
+.call-recording-wave-action > span {
+  font-size: 10px;
+  color: #7f9b89;
+}
+.call-recording-wave-error {
+  color: #b1a587;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.call-recording-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 0;
+  color: #d6b486;
+}
+.call-recording-error p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 670px;
+}
+.call-recording-error button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.call-recording-waveform {
+  margin-top: 15px;
+  padding: 11px 12px 9px;
+  background: #111b15;
+  border: 1px solid #293c30;
+  border-radius: 6px;
+}
+.call-recording-wave {
+  display: block;
+  width: 100%;
+  height: 64px;
+  cursor: crosshair;
+  touch-action: manipulation;
+  border-radius: 3px;
+}
+.call-recording-wave rect {
+  fill: #3a7350;
+}
+.call-recording-wave rect.is-played {
+  fill: #0dcd62;
+}
+.call-recording-baseline {
+  stroke: #2b4935;
+  stroke-width: 1;
+}
+.call-recording-playhead {
+  stroke: #b0e4c0;
+  stroke-width: 1;
+}
+.call-recording-wave:focus-visible {
+  outline: 2px solid var(--accent, #0dcd62);
+  outline-offset: 4px;
+}
+.call-recording-wave-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 5px;
+  color: #8fab99;
+  font-size: 10px;
+}
+.call-recording-wave-caption time {
+  font-variant-numeric: tabular-nums;
+  color: #b3cebd;
+}

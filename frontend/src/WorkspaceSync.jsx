@@ -83,7 +83,19 @@ export default function WorkspaceSync({ data, restore }) {
       })
       .catch(() => {
         if (!active) return;
-        setStatus("Сервер недоступен · изменения сохраняются в этом браузере");
+        let localAvailable = false;
+        try {
+          localStorage.setItem("freedom-cqa-storage-probe", "1");
+          localStorage.removeItem("freedom-cqa-storage-probe");
+          localAvailable = true;
+        } catch {
+          /* Browser storage may be blocked or full. */
+        }
+        setStatus(
+          localAvailable
+            ? "Сервер недоступен · изменения сохраняются в этом браузере"
+            : "Хранилище недоступно · экспортируйте изменения перед закрытием страницы",
+        );
         setCanRetry(true);
       })
       .finally(() => clearTimeout(timeout));

@@ -27,7 +27,7 @@ flowchart LR
 - `EvaluationPanel.jsx`: real API execution, error/progress/history controls. No simulated evaluator.
 - `WorkspaceSync.jsx`: shared workspace API with browser-local fallback.
 - `src/cqa/`: service, model provider, validation, deterministic scoring, persistence, CLI and benchmarks.
-- Static GitHub Pages deploys the UI. Model execution requires a separately deployed API. The Vite proxy supports local development.
+- Vercel is the requested frontend deployment target. A stateful Python API and the local model require a separately reachable persistent backend. FastAPI can also serve the built frontend for a complete same-origin local/VPS installation. Oracle work is paused. No serverless SQLite persistence or live model availability is claimed. See `docs/VERCEL_DEPLOY.md`.
 
 ## API and data invariants
 
@@ -57,3 +57,19 @@ One agent edits a file at a time. The coordinator owns `App.jsx` during integrat
 4. Contract tests cover visible service failure and actual payload/result application. These mocks are not an accuracy claim.
 5. Inspect screenshots, logo loading, text readability and actionable controls.
 6. Review the final diff, resolve critic findings, commit and push. Report PR/deployment status truthfully; a generated URL does not establish successful publication.
+
+## Freedom brand and reliability iteration
+
+File ownership: deployment agent owns `vercel.json` and `docs/VERCEL_DEPLOY.md`; site agent owns `SelectionDesk.jsx` and `selection-desk.css`; coordinator owns analysis, shell, boot/recovery and storage integration; QA agent owns browser tests and `docs/ORACLE_UI_REVIEW.md`.
+
+The user authorized Vercel deployment and can sign in, but the current executor has no Vercel login and no VPS. Network access to Vercel and PowerPlatform also needs the saved environment draft applied. Deployment remains pending until authenticated access and runtime prerequisites exist. Private data source URLs belong in server configuration and never in browser bundles.
+
+A missing/invalid criterion result is unknown, not a pass. A missing critical flag cannot be reported clear; a known critical flag remains visible even if another result is absent. Incomplete answers have no overall score. Mocked contract tests do not substitute for accuracy measurement on held-out Ground Truth.
+
+## Real multi-agent evaluation
+
+`CQA_STRATEGY=multi_agent` executes a specialist per supplied criterion, then a full-source critic. Criteria and IDs come from each request, so added rules do not require routing-code changes. Shared-model calls and specialist scheduling have separate bounded concurrency gates. Every finding is validated against the complete original source; partial/failed runs do not become finished evaluations. Python alone calculates the final score.
+
+`agentRuns`, actual calls/tokens, strategy and prompt version are stored with the result. Cache identities include strategy and actual agent instructions. The previous two-pass evaluator remains available for compatibility. No measured accuracy improvement is claimed without Ground Truth.
+
+A real appeal freeze was reproduced with `crypto.randomUUID` unavailable on non-secure HTTP. IDs are now created before state updates with a compatible fallback; duplicate submits are locked. A real SQLite save/reload test verified persistence independently of mocked browser contracts.

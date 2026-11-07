@@ -5,6 +5,9 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  X,
   Clock3,
   FileText,
   Headphones,
@@ -14,6 +17,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { initialCriteria, scoreEvaluation } from "./data";
+import CallRecording from "./CallRecording";
 
 const format = (value) =>
   typeof value === "number"
@@ -31,11 +35,28 @@ function ratio(rule, result) {
   return result.answer === "Да" ? 1 : result.answer === "Нет" ? 0 : null;
 }
 
-function hasIssue(rule, result) {
+function validResult(rule, result) {
   if (!result) return false;
+  if (rule.type === "flag") return ["Да", "Нет"].includes(result.answer);
+  if (result.answer === "N/A") return Boolean(rule.naAllowed);
+  return rule.type === "scale"
+    ? typeof result.answer === "number" && rule.scale.includes(result.answer)
+    : ["Да", "Нет"].includes(result.answer);
+}
+
+function hasIssue(rule, result) {
+  if (!validResult(rule, result)) return false;
   return rule.type === "flag"
     ? result.answer === "Да"
     : ratio(rule, result) !== null && ratio(rule, result) < 1;
+}
+
+function displayTime(value) {
+  const iso =
+    /^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(
+      value || "",
+    );
+  return iso ? iso[1] : value;
 }
 
 function roleName(role, dialog) {
@@ -90,6 +111,7 @@ export default function ConversationAnalysis({
   const [activeRule, setActiveRule] = useState(initialRule);
   const [highlighted, setHighlighted] = useState(null);
   const [query, setQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const transcript = useRef(null);
   const active =
     rows.find(({ rule }) => String(rule.id) === String(activeRule)) ||
@@ -114,6 +136,14 @@ export default function ConversationAnalysis({
   const issueCount = rows.filter(({ rule, result }) =>
     hasIssue(rule, result),
   ).length;
+  const missingCount = rows.filter(
+    ({ rule, result }) => !validResult(rule, result),
+  ).length;
+  const flagRows = rows.filter(({ rule }) => rule.type === "flag");
+  const criticalFound = flagRows.some(({ result }) => result?.answer === "Да");
+  const criticalKnown =
+    flagRows.length > 0 &&
+    flagRows.every(({ rule, result }) => validResult(rule, result));
   const history = appeals.filter((appeal) => appeal.dialogId === dialog.id);
   const matches = useMemo(
     () =>
@@ -143,7 +173,7 @@ export default function ConversationAnalysis({
     }
   }, [activeRule, activeRuleId]);
 
-  function showMessage(id) {
+  function showMessage(id, focus = true) {
     if (!messages.some((message) => message.id === id)) return;
     setHighlighted(id);
     requestAnimationFrame(() => {
@@ -159,13 +189,21 @@ export default function ConversationAnalysis({
           behavior: "smooth",
         });
       }
-      target?.focus({ preventScroll: true });
+      if (focus) target?.focus({ preventScroll: true });
     });
   }
 
   useEffect(() => {
-    if (matches.length) showMessage(matches[0].id);
+    setMatchIndex(0);
+    if (matches.length) showMessage(matches[0].id, false);
   }, [matches]);
+
+  function moveMatch(direction) {
+    if (!matches.length) return;
+    const next = (matchIndex + direction + matches.length) % matches.length;
+    setMatchIndex(next);
+    showMessage(matches[next].id, false);
+  }
 
   const contribution =
     active && applicableWeight
@@ -193,25 +231,44 @@ export default function ConversationAnalysis({
         </div>
       </div>
       <div className="ca-quality-meta">
-        <strong>{scored ? "Итоговая оценка диалога" : "Ожидает оценки"}</strong>
+        <strong>
+          {scored
+            ? "Итоговая оценка диалога"
+            : ready
+              ? "Оценка неполная"
+              : "Ожидает оценки"}
+        </strong>
         <p>
           {ready
             ? `${applicable.length} применимых критериев · ${naCount} N/A`
             : "Баллы появятся после обработки сервисом"}
         </p>
         <span
-          className={calculation.critical ? "ca-critical-flag" : "ca-safe-flag"}
+          className={
+            criticalFound
+              ? "ca-critical-flag"
+              : criticalKnown
+                ? "ca-safe-flag"
+                : "ca-unknown-flag"
+          }
         >
           {ready ? (
-            calculation.critical ? (
+            criticalFound ? (
               <>
                 <AlertTriangle size={14} />
                 Грубая ошибка
               </>
-            ) : (
+            ) : criticalKnown ? (
               <>
                 <ShieldCheck size={14} />
                 Грубых ошибок нет
+              </>
+            ) : (
+              <>
+                <Clock3 size={14} />
+                {flagRows.length
+                  ? "Грубая ошибка: нет данных"
+                  : "Грубая ошибка: критерий не задан"}
               </>
             )
           ) : (
@@ -260,8 +317,15 @@ export default function ConversationAnalysis({
         )}
       </header>
 
-      <section className="ca-conversation-track" aria-label="Ход диалога">
-        <div className="ca-track-heading">
+      {dialog.channel === "call" && (
+        <CallRecording
+          key={dialog.id}
+          audioUrl={dialog.audio_url}
+          dialogId={dialog.id}
+        />
+      )}
+      <details className="ca-conversation-track" aria-label="Ход диалога">
+        <summary className="ca-track-heading">
           <div>
             <MessageCircle size={16} />
             <strong>Ход диалога</strong>
@@ -273,18 +337,7 @@ export default function ConversationAnalysis({
             <i />
             Оператор
           </span>
-        </div>
-        {dialog.channel === "call" && dialog.audio_url && (
-          <div className="ca-audio-player">
-            <Headphones size={17} />
-            <audio
-              controls
-              preload="none"
-              src={dialog.audio_url}
-              aria-label="Запись разговора"
-            />
-          </div>
-        )}
+        </summary>
         <div
           className="ca-message-timeline"
           role="group"
@@ -295,11 +348,11 @@ export default function ConversationAnalysis({
               key={message.id}
               className={`ca-timeline-message ca-timeline-${message.role} ${highlighted === message.id ? "is-active" : ""}`}
               onClick={() => showMessage(message.id)}
-              aria-label={`Реплика ${index + 1}: ${roleName(message.role, dialog)}, ${message.time}`}
-              title={`${roleName(message.role, dialog)} · ${message.time}`}
+              aria-label={`Реплика ${index + 1}: ${roleName(message.role, dialog)}, ${displayTime(message.time)}`}
+              title={`${roleName(message.role, dialog)} · ${displayTime(message.time)}`}
             >
               <span>{String(index + 1).padStart(2, "0")}</span>
-              <small>{message.time}</small>
+              <small title={message.time}>{displayTime(message.time)}</small>
             </button>
           ))}
         </div>
@@ -310,7 +363,7 @@ export default function ConversationAnalysis({
             <span>Запись не приложена к демо</span>
           )}
         </div>
-      </section>
+      </details>
 
       <div className="ca-workspace">
         <section
@@ -328,8 +381,42 @@ export default function ConversationAnalysis({
               placeholder="Найти в разговоре"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  moveMatch(event.shiftKey ? -1 : 1);
+                }
+              }}
             />
-            {query.trim() && <span>{matches.length} совпадений</span>}
+            {query.trim() && (
+              <div className="ca-search-controls">
+                <span role="status">
+                  {matches.length
+                    ? `${matchIndex + 1} / ${matches.length}`
+                    : "Не найдено"}
+                </span>
+                <button
+                  disabled={!matches.length}
+                  aria-label="Предыдущее совпадение"
+                  onClick={() => moveMatch(-1)}
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  disabled={!matches.length}
+                  aria-label="Следующее совпадение"
+                  onClick={() => moveMatch(1)}
+                >
+                  <ChevronDown size={14} />
+                </button>
+                <button
+                  aria-label="Очистить поиск по переписке"
+                  onClick={() => setQuery("")}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
           </div>
           <div className="ca-transcript-scroll" ref={transcript}>
             {messages.map((message) => (
@@ -340,7 +427,9 @@ export default function ConversationAnalysis({
                 className={`ca-message message ca-message-${message.role} ${highlighted === message.id ? "highlighted" : ""}`}
               >
                 <div className="ca-message-meta">
-                  <time>{message.time}</time>
+                  <time dateTime={message.time} title={message.time}>
+                    {displayTime(message.time)}
+                  </time>
                   <strong>{roleName(message.role, dialog)}</strong>
                   <small>#{message.id}</small>
                 </div>
@@ -378,6 +467,12 @@ export default function ConversationAnalysis({
             </>
           ) : (
             <>
+              {missingCount > 0 && (
+                <p className="ca-incomplete" role="status">
+                  Нет результатов: {missingCount} из {rules.length}. Итог не
+                  рассчитан.
+                </p>
+              )}
               <div className="ca-quality-overview">
                 {qualitySummary}
                 <div
@@ -388,7 +483,8 @@ export default function ConversationAnalysis({
                   {rows.map(({ rule, result }) => {
                     const issue = hasIssue(rule, result);
                     const na = result?.answer === "N/A";
-                    const answer = !result
+                    const unknown = !validResult(rule, result);
+                    const answer = unknown
                       ? "Не оценён"
                       : typeof result.answer === "number"
                         ? `${result.answer} / ${Math.max(...rule.scale)}`
@@ -396,14 +492,20 @@ export default function ConversationAnalysis({
                     return (
                       <button
                         key={rule.id}
-                        className={`ca-criterion-row ${String(activeRuleId) === String(rule.id) ? "is-selected" : ""} ${issue ? "has-issue" : ""} ${na ? "is-na" : ""}`}
+                        className={`ca-criterion-row ${String(activeRuleId) === String(rule.id) ? "is-selected" : ""} ${issue ? "has-issue" : ""} ${na ? "is-na" : ""} ${unknown ? "is-unknown" : ""}`}
                         aria-label={`Критерий: ${rule.title}`}
                         aria-describedby={`ca-answer-${rule.id}`}
                         aria-pressed={String(activeRuleId) === String(rule.id)}
-                        onClick={() => setActiveRule(rule.id)}
+                        onClick={() => {
+                          setActiveRule(rule.id);
+                          if (result?.evidenceId)
+                            showMessage(result.evidenceId, false);
+                        }}
                       >
                         <span className="ca-result-symbol">
-                          {issue ? (
+                          {unknown ? (
+                            "—"
+                          ) : issue ? (
                             <AlertTriangle size={13} />
                           ) : na ? (
                             "—"
@@ -428,13 +530,17 @@ export default function ConversationAnalysis({
                     ПОЧЕМУ ТАКАЯ ОЦЕНКА
                   </span>
                   <h3>{active.rule.title}</h3>
-                  <p>{active.result?.reason || "Обоснование не указано."}</p>
+                  <p>
+                    {active.result?.reason ||
+                      "Результат по этому критерию ещё не получен. Он не засчитывается как успешный."}
+                  </p>
                   {active.result?.answer === "N/A" && (
                     <div className="ca-applicability-note">
                       N/A: {active.rule.naCondition || active.result.reason}
                     </div>
                   )}
-                  {ratio(active.rule, active.result) !== null &&
+                  {scored &&
+                    ratio(active.rule, active.result) !== null &&
                     applicableWeight > 0 && (
                       <div className="ca-contribution">
                         Вклад в итог с учётом N/A{" "}
@@ -444,7 +550,8 @@ export default function ConversationAnalysis({
                   {evidence && (
                     <blockquote>
                       <span>
-                        {roleName(evidence.role, dialog)} · {evidence.time}
+                        {roleName(evidence.role, dialog)} ·{" "}
+                        {displayTime(evidence.time)}
                       </span>
                       <p>{evidence.text}</p>
                       <button onClick={() => showMessage(evidence.id)}>
@@ -502,8 +609,19 @@ export default function ConversationAnalysis({
             </details>
           )}
           <footer className="ca-quality-footer">
-            {dialog.source === "ollama" ? "AI-оценка" : "Демо-оценка"} ·{" "}
-            {ready ? `${issueCount} замечания` : "без вымышленных результатов"}{" "}
+            {!ready
+              ? "Оценка ещё не выполнена"
+              : dialog.source === "ollama"
+                ? "AI-оценка"
+                : ["organizer", "import"].includes(dialog.source)
+                  ? "Оценка диалога"
+                  : "Демо-оценка"}{" "}
+            ·{" "}
+            {ready
+              ? missingCount
+                ? "Неполный результат"
+                : `Замечания: ${issueCount}`
+              : "Без готовой оценки"}{" "}
             · N/A исключается из расчёта
           </footer>
         </section>

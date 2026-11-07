@@ -15,6 +15,8 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from cqa.criterion_agents import PROMPT_VERSION, prompt_signature, run_specialists
+
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
@@ -209,7 +211,16 @@ class Evaluator:
         concurrency = int(os.getenv("CQA_CONCURRENCY", "1"))
         if concurrency < 1:
             raise ValueError("CQA_CONCURRENCY должна быть положительной")
+        # Separate gates prevent a request from holding the same semaphore that
+        # its specialist tasks need to generate. The model gate spans all requests.
         self.semaphore = asyncio.Semaphore(concurrency)
+        self.evaluation_semaphore = asyncio.Semaphore(concurrency)
+        self.strategy = os.getenv("CQA_STRATEGY", "two_pass")
+        if self.strategy not in ("two_pass", "multi_agent"):
+            raise ValueError("CQA_STRATEGY должна быть two_pass или multi_agent")
+        self.agent_concurrency = int(os.getenv("CQA_AGENT_CONCURRENCY", "1"))
+        if not 1 <= self.agent_concurrency <= 8:
+            raise ValueError("CQA_AGENT_CONCURRENCY должна быть от 1 до 8")
         self.context_size = int(os.getenv("CQA_NUM_CTX", "65536"))
         if self.context_size < 8192:
             raise ValueError("CQA_NUM_CTX должна быть не меньше 8192")
@@ -229,98 +240,131 @@ class Evaluator:
 
     async def generate(self, messages):
         self.check_context(messages)
-        async with httpx.AsyncClient(
-            timeout=600, transport=self.transport, trust_env=False
-        ) as client:
-            for attempt in range(3):
-                response = await client.post(
-                    self.url + "/api/chat",
-                    json={
-                        "model": self.model,
-                        "stream": False,
-                        "think": False,
-                        "format": Analysis.model_json_schema(),
-                        "messages": messages,
-                        "options": {
-                            "temperature": 0,
-                            "num_ctx": self.context_size,
-                            "num_predict": self.output_limit,
+        async with self.semaphore:
+            async with httpx.AsyncClient(
+                timeout=600, transport=self.transport, trust_env=False
+            ) as client:
+                for attempt in range(3):
+                    response = await client.post(
+                        self.url + "/api/chat",
+                        json={
+                            "model": self.model,
+                            "stream": False,
+                            "think": False,
+                            "format": Analysis.model_json_schema(),
+                            "messages": messages,
+                            "options": {
+                                "temperature": 0,
+                                "num_ctx": self.context_size,
+                                "num_predict": self.output_limit,
+                            },
                         },
-                    },
+                    )
+                    if response.status_code in (429, 503) and attempt < 2:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    response.raise_for_status()
+                    data = response.json()
+                    if not isinstance(data, dict) or not isinstance(data.get("message"), dict):
+                        raise ValueError("Ollama вернула некорректный ответ")
+                    if data.get("done_reason") == "length":
+                        raise ValueError(
+                            "Ответ модели оборван лимитом токенов; результат не сохранён"
+                        )
+                    if not isinstance(data.get("message", {}).get("content"), str):
+                        raise ValueError("Ollama вернула ответ без текста оценки")
+                    return data
+
+    async def analyze_phase(self, request, messages):
+        tokens = 0
+        passes = 0
+        for attempt in range(3):
+            response = await self.generate(messages)
+            passes += 1
+            tokens += response.get("eval_count", 0) + response.get("prompt_eval_count", 0)
+            raw = response["message"]["content"]
+            try:
+                analysis = validate_analysis(request, Analysis.model_validate_json(raw))
+            except (ValueError, KeyError) as exc:
+                if attempt == 2:
+                    raise ValueError(
+                        "Модель не вернула проверяемую оценку после исправлений"
+                    ) from exc
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": raw},
+                        {
+                            "role": "user",
+                            "content": f"Исправь JSON: {exc}. Верни полный результат.",
+                        },
+                    ]
                 )
-                if response.status_code in (429, 503) and attempt < 2:
-                    await asyncio.sleep(2**attempt)
-                    continue
-                response.raise_for_status()
-                data = response.json()
-                if not isinstance(data, dict) or not isinstance(data.get("message"), dict):
-                    raise ValueError("Ollama вернула некорректный ответ")
-                if data.get("done_reason") == "length":
-                    raise ValueError("Ответ модели оборван лимитом токенов; результат не сохранён")
-                if not isinstance(data.get("message", {}).get("content"), str):
-                    raise ValueError("Ollama вернула ответ без текста оценки")
-                return data
+                continue
+            return analysis, passes, tokens
+        raise ValueError("Не удалось подтвердить оценку")
 
     async def evaluate(self, request):
         content = request.model_dump(exclude={"force"})
         key = hashlib.sha256(
             json.dumps(
-                {"input": content, "model": self.model, "prompt": RULES, "pipeline": 2},
+                {
+                    "input": content,
+                    "model": self.model,
+                    "prompt": RULES,
+                    "pipeline": 2,
+                    "strategy": self.strategy,
+                    "agentPrompts": prompt_signature() if self.strategy == "multi_agent" else None,
+                },
                 sort_keys=True,
                 ensure_ascii=False,
             ).encode()
         ).hexdigest()
-        async with self.semaphore:
+        async with self.evaluation_semaphore:
             if not request.force and (cached := self.store.cached(key)):
                 return {**cached, "cached": True}
-            messages = [
-                {"role": "system", "content": RULES},
-                {"role": "user", "content": json.dumps(content, ensure_ascii=False)},
-            ]
-            tokens = 0
-            passes = 0
-            analysis = None
-            # Each phase has its own repair budget: invalid drafts must never consume
-            # the critic's opportunity or be persisted as final results.
-            for phase in ("evaluate", "critic"):
-                for attempt in range(3):
-                    response = await self.generate(messages)
-                    passes += 1
-                    tokens += response.get("eval_count", 0) + response.get("prompt_eval_count", 0)
-                    raw = response["message"]["content"]
-                    try:
-                        analysis = validate_analysis(request, Analysis.model_validate_json(raw))
-                    except (ValueError, KeyError) as exc:
-                        if attempt == 2:
-                            raise ValueError(
-                                "Модель не вернула проверяемую оценку после исправлений"
-                            ) from exc
-                        messages.extend(
-                            [
-                                {"role": "assistant", "content": raw},
-                                {
-                                    "role": "user",
-                                    "content": (f"Исправь JSON: {exc}. Верни полный результат."),
-                                },
-                            ]
-                        )
-                        continue
-                    break
-                if phase == "evaluate":
-                    messages.extend(
-                        [
-                            {"role": "assistant", "content": analysis.model_dump_json()},
-                            {
-                                "role": "user",
-                                "content": (
-                                    "Роль Critic: проверь каждый ответ по исходному тексту. "
-                                    "Особенно N/A, первый ответ оператора, идентификацию до "
-                                    "защищённого действия, частные платные услуги, обрыв диалога "
-                                    "и ступени шкал. Исправь ошибки. Верни полный финальный JSON."
-                                ),
-                            },
-                        ]
-                    )
+            if self.strategy == "multi_agent":
+                analysis, runs = await run_specialists(
+                    request, RULES, self.analyze_phase, self.agent_concurrency
+                )
+                passes = sum(run["passes"] for run in runs)
+                tokens = sum(run["tokens"] for run in runs)
+            else:
+                messages = [
+                    {"role": "system", "content": RULES},
+                    {"role": "user", "content": json.dumps(content, ensure_ascii=False)},
+                ]
+                analysis, draft_passes, draft_tokens = await self.analyze_phase(request, messages)
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": analysis.model_dump_json()},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Роль Critic: проверь каждый ответ по исходному тексту. "
+                                "Особенно N/A, первый ответ оператора, идентификацию до "
+                                "защищённого действия, частные платные услуги, обрыв диалога "
+                                "и ступени шкал. Исправь ошибки. Верни полный финальный JSON."
+                            ),
+                        },
+                    ]
+                )
+                analysis, critic_passes, critic_tokens = await self.analyze_phase(request, messages)
+                passes = draft_passes + critic_passes
+                tokens = draft_tokens + critic_tokens
+                runs = [
+                    {
+                        "role": "evaluate",
+                        "criterionIds": [c.id for c in request.criteria],
+                        "passes": draft_passes,
+                        "tokens": draft_tokens,
+                    },
+                    {
+                        "role": "critic",
+                        "criterionIds": [c.id for c in request.criteria],
+                        "passes": critic_passes,
+                        "tokens": critic_tokens,
+                    },
+                ]
             if analysis is not None:
                 body = {
                     "evaluationId": str(uuid4()),
@@ -335,6 +379,11 @@ class Evaluator:
                     "tokens": tokens,
                     "passes": passes,
                     "cached": False,
+                    "strategy": self.strategy,
+                    "agentPromptVersion": PROMPT_VERSION
+                    if self.strategy == "multi_agent"
+                    else None,
+                    "agentRuns": runs,
                 }
                 self.store.save(key, body)
                 return body

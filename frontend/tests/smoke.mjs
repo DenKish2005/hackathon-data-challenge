@@ -231,6 +231,7 @@ try {
     false,
     "A 100-message timeline must scroll inside its panel at desktop width",
   );
+  await page.locator(".ca-conversation-track > summary").click();
   await page.locator(".ca-timeline-message").last().click();
   assert.match(
     await page.locator(".ca-message.highlighted").innerText(),

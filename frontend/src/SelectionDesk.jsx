@@ -10,9 +10,11 @@ import {
   MessageCircle,
   Search,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
 import { initialCriteria, scoreEvaluation } from "./data";
+import "./selection-desk.css";
 
 const format = (value) =>
   typeof value === "number"
@@ -76,6 +78,8 @@ export default function SelectionDesk({
   const [query, setQuery] = useState("");
   const [language, setLanguage] = useState("all");
   const [channel, setChannel] = useState("all");
+  const [queue, setQueue] = useState("all");
+  const [sort, setSort] = useState("original");
   const candidate = dialogs.find((dialog) => dialog.id === candidateId) || null;
   const current = evaluation(candidate);
   const snapshot = candidate?.criteriaSnapshot || initialCriteria;
@@ -105,15 +109,27 @@ export default function SelectionDesk({
 
   const visible = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
-    return dialogs.filter(
+    const filtered = dialogs.filter(
       (dialog) =>
         (language === "all" || dialog.language === language) &&
         (channel === "all" || dialog.channel === channel) &&
+        (queue === "all" ||
+          (queue === "critical"
+            ? evaluation(dialog).critical
+            : dialog.status === queue)) &&
         `${dialog.id} ${dialog.topic} ${dialog.customer} ${dialog.agent}`
           .toLocaleLowerCase()
           .includes(term),
     );
-  }, [dialogs, query, language, channel]);
+    if (sort === "original") return filtered;
+    return filtered.sort((a, b) => {
+      const scoreA = evaluation(a).score;
+      const scoreB = evaluation(b).score;
+      if (scoreA === null) return scoreB === null ? 0 : 1;
+      if (scoreB === null) return -1;
+      return sort === "score-low" ? scoreA - scoreB : scoreB - scoreA;
+    });
+  }, [dialogs, query, language, channel, queue, sort]);
 
   const assessed = dialogs
     .map((dialog) => ({
@@ -144,6 +160,7 @@ export default function SelectionDesk({
     setQuery("");
     setLanguage("all");
     setChannel("all");
+    setQueue("all");
   }
 
   return (
@@ -157,9 +174,7 @@ export default function SelectionDesk({
             </div>
             <span className="desk-version">Версия {version}</span>
           </header>
-          <p className="desk-panel-caption">
-            Единый стандарт качества для всех диалогов
-          </p>
+          <p className="desk-panel-caption">Правила для новых оценок</p>
           <div className="desk-rule-list">
             {criteria.map((rule, index) => (
               <button
@@ -179,6 +194,16 @@ export default function SelectionDesk({
               </button>
             ))}
           </div>
+          <div className="desk-version-note">
+            <ShieldCheck size={16} />
+            <div>
+              <strong>Оценки привязаны к версии</strong>
+              <p>
+                Изменения применяются к новым запускам. Прежние результаты
+                сохраняют свой чек-лист.
+              </p>
+            </div>
+          </div>
           <footer className="desk-rules-footer">
             <span>{criteria.length} критериев · RU / KZ / EN</span>
             <button onClick={onChecklist}>
@@ -194,7 +219,7 @@ export default function SelectionDesk({
               <h2>Выберите диалог</h2>
               <span className="desk-total-count">{dialogs.length}</span>
             </div>
-            <span className="desk-source">Демонстрационный набор</span>
+            <span className="desk-source">Текущий набор</span>
           </header>
           <div className="desk-chat-toolbar">
             <label className="desk-search">
@@ -225,6 +250,42 @@ export default function SelectionDesk({
               <option value="chat">Чаты</option>
               <option value="call">Звонки</option>
             </select>
+          </div>
+          <div className="desk-queue-controls">
+            <div
+              className="desk-queue-tabs"
+              role="group"
+              aria-label="Статус диалога"
+            >
+              {[
+                ["all", "Все", dialogs.length],
+                ["review", "На проверке", needsReview],
+                ["pending", "Без оценки", pending],
+                ["critical", "Грубые ошибки", critical],
+              ].map(([value, label, count]) => (
+                <button
+                  key={value}
+                  aria-pressed={queue === value}
+                  onClick={() => setQueue(value)}
+                >
+                  {label}
+                  <span>{count}</span>
+                </button>
+              ))}
+            </div>
+            <select
+              aria-label="Сортировка диалогов"
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+            >
+              <option value="original">Порядок загрузки</option>
+              <option value="score-low">Сначала низкая оценка</option>
+              <option value="score-high">Сначала высокая оценка</option>
+            </select>
+          </div>
+          <div className="desk-queue-columns" aria-hidden="true">
+            <span>Диалог</span>
+            <span>Оценка / статус</span>
           </div>
           <div
             className="desk-chat-list"
@@ -278,13 +339,19 @@ export default function SelectionDesk({
             )}
           </div>
           <footer className="desk-chat-footer">
-            <span>
+            <span aria-live="polite">
               {candidate ? (
                 <>
-                  Выбран <strong>{candidate.id}</strong>
+                  <strong>{candidate.id}</strong>
+                  <small>
+                    {candidate.topic}
+                    {!visible.some((d) => d.id === candidate.id)
+                      ? " · вне текущего фильтра"
+                      : ""}
+                  </small>
                 </>
               ) : (
-                "Выберите один диалог для подробного разбора"
+                "Выберите диалог, чтобы открыть его оценку"
               )}
             </span>
             <button
@@ -483,8 +550,10 @@ export default function SelectionDesk({
                 </button>
               )}
               <small className="desk-preview-origin">
-                Демонстрационная оценка · чек-лист v
-                {candidate.checklistVersion || 1}
+                {candidate.source === "ollama"
+                  ? "AI-оценка"
+                  : "Демонстрационная оценка"}{" "}
+                · чек-лист v{candidate.checklistVersion || 1}
               </small>
             </div>
           </div>

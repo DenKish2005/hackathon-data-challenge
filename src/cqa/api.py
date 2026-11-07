@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,12 @@ async def health():
         ready = evaluator.model in names
     except (httpx.HTTPError, KeyError, ValueError):
         ready = False
-    return {"status": "ready" if ready else "model_unavailable", "model": evaluator.model}
+    return {
+        "status": "ready" if ready else "model_unavailable",
+        "model": evaluator.model,
+        "strategy": evaluator.strategy,
+        "agentConcurrency": evaluator.agent_concurrency,
+    }
 
 
 @app.post("/api/evaluate")
@@ -46,25 +51,51 @@ def history(conversation_id: str):
 
 
 @app.get("/api/organizer")
-async def organizer(group_id: str = "DEV"):
+async def organizer(group_id: str = Query(default="DEV", pattern=r"^[A-Za-z0-9_-]{1,64}$")):
     # Fixed server-side URL; never accept arbitrary browser URLs or expose signatures.
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
     url = os.getenv("CQA_DATA_URL")
     if not url:
         raise HTTPException(503, "Задайте CQA_DATA_URL на сервере или импортируйте JSON-файл")
-    parts = urlsplit(url)
-    query = dict(parse_qsl(parts.query))
-    query["group_id"] = group_id
-    target = urlunsplit(parts._replace(query=urlencode(query)))
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        parts = urlsplit(url)
+        if (
+            parts.scheme != "https"
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+        ):
+            raise ValueError("Invalid organizer URL")
+        # Accessing port also validates its syntax. Never include this URL in client errors.
+        _ = parts.port
+        query = [(key, value) for key, value in parse_qsl(parts.query) if key != "group_id"]
+        query.append(("group_id", group_id))
+        target = urlunsplit(parts._replace(query=urlencode(query)))
+    except ValueError as exc:
+        raise HTTPException(503, "Проверьте настройку CQA_DATA_URL на сервере") from exc
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
             response = await client.get(target)
             response.raise_for_status()
             data = response.json()
-        if data.get("isSuccess") is not True:
+        if not isinstance(data, (dict, list)):
+            raise ValueError("Некорректный ответ организаторов")
+        if isinstance(data, dict) and data.get("isSuccess") is False:
             raise ValueError("Ошибка организаторов")
+        container = data.get("data", data) if isinstance(data, dict) else None
+        records = (
+            data
+            if isinstance(data, list)
+            else (container.get("records") if isinstance(container, dict) else None)
+        )
+        if not isinstance(records, list) or not records or len(records) > 1000:
+            raise ValueError("Нужен массив из 1–1000 записей records")
         return data
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            504, "Источник диалогов не ответил вовремя. Повторите загрузку."
+        ) from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(502, "API организаторов недоступен; используйте импорт JSON") from exc
 

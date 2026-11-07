@@ -1,41 +1,22 @@
-# Design QA — Freedom presentation workspace
+# Freedom CQA — design and functional verification
 
-Final result: passed for the verified desktop flows.
+The latest selected references are the user's dark Freedom Bank screenshots (bankffin.kz and loan-cash.freedombank.kz). They ground the near-black canvas, graphite panels, white wordmark and bright green actions. The workflow remains the user's CQA desk: choose one conversation, inspect its original transcript and criterion results, follow evidence, appeal and review. The existing Freedom shield is served locally; its source is documented in public/freedom-logo-source.md. No official brand font or live website capture is claimed.
 
-## Reference and scope
+## Delivered workflow
 
-The selected reference is the user's photographed Freedom quality-control presentation (`photo_1_2026-11-07_15-23-13.jpg`). The review follows its green CQA rail, white surfaces, Freedom mark at the top right, conversation timeline, transcript on the left and score/checklist on the right. The notebook sketch remains the reference for the selection desk.
+- Search, language/channel/status filters, critical cases and score sorting work on real current records. An explicit selection enables the analysis action.
+- All versioned criteria remain available. Missing results are neutral and have no calculated score; missing critical data is never reported clear. Known critical errors remain visible in incomplete results.
+- Choosing a criterion highlights its evidence. Transcript search retains typing focus; Enter/Shift+Enter navigates matches. ISO timestamps are shown compactly while original values remain in data and exports.
+- A call's actual audio URL appears in an always-visible native player above the analysis. Optional waveform peaks come from decoded audio, with memory/size/time limits and keyboard seek. No artificial speaker tracks are generated. Expired links and CORS/decoding failures leave a truthful recovery state.
+- Appeals work without crypto.randomUUID, deduplicate submit and retain their evaluation identity. An old appeal cannot mutate a newer evaluation. A real API/SQLite save and browser reload were checked separately from mocks.
+- Blocked storage, invalid stored types and missing JS assets show recovery content rather than a blank page.
 
-This is a desktop interpretation of the supplied photographs, not a pixel clone of a tilted slide. Live access to `https://fbroker.kz/` was denied by network policy; no claim is made that the live website or official brandbook was captured. The existing Freedom shield is locally stored, with source documented in `public/freedom-logo-source.md`. Roboto is self-hosted, not asserted to be the official brand font.
+## Evidence and checks
 
-## Implementation checks
+See [full review](../docs/FREEDOM_UI_REVIEW.md) for current browser checks and screenshots. Production build, three browser suites, CQA tests, proxy tests and lint pass. Browser viewports are 1440×1000 and1280×900; no horizontal overflow or uncaught JS errors in verified flows.
 
-- A fresh visit requires explicit conversation selection before opening analytics.
-- The selected conversation has its own score, all eight historical criteria, actual transcript and evidence. A changed current checklist does not rewrite its snapshot.
-- The ring sits beside the criterion list, matching the presentation hierarchy. Selecting a criterion shows one explanation below it, followed by its real quote and appeal action.
-- The timeline shows actual message positions and timestamps. No fabricated sound waveform is shown; audio appears only when an actual audio URL exists.
-- Evidence navigation highlights and focuses the referenced message and scrolls the transcript container. Amber highlights evidence and issues; primary reading text uses neutral dark ink.
-- Pending dialogues retain an empty score and no invented findings. N/A normalization and separate critical flags remain unchanged.
-- Advanced evaluation/history controls remain connected below the review. The teammate's Ollama evaluation and shared-workspace integration are retained.
-- Import, export, contextual appeals, human review and score recalculation remain functional.
+Synthetic PCM-WAV files verify actual decoding/playback logic. Actual organizer audio playback is **not** claimed: the source domain is blocked in this execution environment. The uploaded private dataset was validated separately:65 records,60 chats,5 calls and5 audio links, all pending real evaluation. Neither those transcripts nor their signed URLs are published.
 
-## Browser checks
+## Runtime and publication limits
 
-Chromium: 1440×1000 and 1280×900 desktop viewports. No horizontal page overflow or JavaScript errors in the smoke flow. Build, desktop smoke and mocked frontend/backend evaluation contract pass. The contract verifies a visible503 failure followed by a successful response, the transcript, eight current criteria and cache flag sent to the backend. Additional regressions cover a100-message transcript and outdated appeals after a new evaluation. This does not establish real-model accuracy.
-
-No mobile iteration was requested. Static GitHub Pages serves the UI; a separately running API is needed for model evaluation and shared persistence.
-
-## Agent review and fixes
-
-The site, API, test and independent critic roles follow `docs/CQA_ARCHITECTURE.md`. Review found and fixed: long timelines overflowing the page, insufficient primary-action contrast, a missing transcript-search focus indicator, criterion answers omitted from accessible descriptions, stale active criteria after new rule IDs, old appeals applying to newer evaluations, old pre-review scores surviving reevaluation, and history404 for conversation IDs containing slashes.
-
-A new evaluation identity scopes appeals, and an outdated appeal has a visible explanation and disabled save action. The handler independently checks that identity. The API route preserves full conversation IDs and has a regression test. All37 Python CQA tests pass; these do not call a live model.
-
-## Screenshots
-
-- [Choose a conversation](docs/freedom-selection.png)
-- [Selected conversation preview](docs/freedom-desk-selected.png)
-- [Conversation analysis](docs/freedom-dialogue.png)
-- [Contextual appeal](docs/freedom-appeal.png)
-- [Checklist](docs/freedom-criteria.png)
-- [Overview](docs/freedom-overview.png)
+The server provides optional multi-agent specialists and a final critic. Ground Truth accuracy has not been measured, and no real model was available in this environment. Vercel configuration and a protected API proxy are prepared; an authenticated deployment and reachable persistent/model backend are still required. Oracle work was paused by the user.

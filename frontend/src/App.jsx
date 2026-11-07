@@ -65,6 +65,20 @@ const names = {
   criteria: "Критерии оценки",
   agents: "Методика",
 };
+function createId() {
+  if (typeof globalThis.crypto?.randomUUID === "function")
+    return globalThis.crypto.randomUUID();
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+      "",
+    );
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
 function evaluationIdentity(dialog) {
   if (!dialog) return null;
   return (
@@ -96,13 +110,23 @@ function stored(k, f) {
     const legacyKey = k.startsWith("freedom-cqa-")
       ? k.replace("freedom-cqa-", "sana-")
       : null;
-    return (
-      JSON.parse(
-        value ?? (legacyKey ? localStorage.getItem(legacyKey) : null),
-      ) ?? f
+    const parsed = JSON.parse(
+      value ?? (legacyKey ? localStorage.getItem(legacyKey) : null),
     );
+    if (parsed === null) return f;
+    if (Array.isArray(f)) return Array.isArray(parsed) ? parsed : f;
+    if (typeof f === "number")
+      return Number.isInteger(parsed) && parsed >= 1 ? parsed : f;
+    return parsed;
   } catch {
     return f;
+  }
+}
+function saveLocal(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* Server sync remains available when the browser blocks local storage. */
   }
 }
 function Avatar({ name, small = false }) {
@@ -215,14 +239,14 @@ export default function App() {
     [queuePage, setQueuePage] = useState(1),
     [lastDialogId, setLastDialogId] = useState(null);
   useEffect(() => {
-    localStorage.setItem("freedom-cqa-dialogs", JSON.stringify(dialogs));
+    saveLocal("freedom-cqa-dialogs", dialogs);
   }, [dialogs]);
   useEffect(() => {
-    localStorage.setItem("freedom-cqa-criteria", JSON.stringify(criteria));
-    localStorage.setItem("freedom-cqa-version", JSON.stringify(version));
+    saveLocal("freedom-cqa-criteria", criteria);
+    saveLocal("freedom-cqa-version", version);
   }, [criteria, version]);
   useEffect(() => {
-    localStorage.setItem("freedom-cqa-appeals", JSON.stringify(appeals));
+    saveLocal("freedom-cqa-appeals", appeals);
   }, [appeals]);
   useEffect(() => {
     if (!toast) return;
@@ -251,6 +275,12 @@ export default function App() {
       window.history.pushState(null, "", "#" + p);
   }
   function openDialog(dialog) {
+    if (!dialog || typeof dialog.id !== "string") {
+      setToast(
+        "Диалог не найден. Обновите список или импортируйте его повторно.",
+      );
+      return;
+    }
     setSelected(dialog);
     setLastDialogId(dialog.id);
     setPage("conversations");
@@ -441,20 +471,11 @@ export default function App() {
             navigate("conversations");
           }}
         >
-          <span className="cqa-brand">
-            CQA<span>Контроль качества</span>
+          <img className="brand-shield" src="./freedom-logo.png" alt="" />
+          <span className="freedom-brand-name">
+            FREEDOM<small>КОНТРОЛЬ КАЧЕСТВА</small>
           </span>
         </a>
-        <div className="workspace">
-          <span className="workspace-logo">
-            <Activity size={18} />
-          </span>
-          <div>
-            <strong>Контроль качества</strong>
-            <small>Рабочее пространство</small>
-          </div>
-          <ChevronsUpDown size={15} />
-        </div>
         <div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
         <nav>
           {Object.entries(names).map(([key, title]) => {
@@ -484,20 +505,6 @@ export default function App() {
             <span>Как пользоваться</span>
             <ArrowUpRight size={14} />
           </button>
-          <div className="profile">
-            <Avatar name="Команда качества" />
-            <div>
-              <strong>Команда качества</strong>
-              <small>Демонстрационный режим</small>
-            </div>
-            <button
-              className="icon-button"
-              aria-label="Информация о профиле"
-              onClick={() => setModal({ type: "profile" })}
-            >
-              <MoreHorizontal size={19} />
-            </button>
-          </div>
         </div>
       </aside>
       {mobile && (
@@ -534,18 +541,17 @@ export default function App() {
               <Search size={14} />
               <kbd>Ctrl K</kbd>
             </button>
-            <a
-              className="freedom-lockup"
-              href="https://fbroker.kz/"
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Freedom Broker — официальный сайт"
+            <button
+              className="header-team"
+              onClick={() => setModal({ type: "profile" })}
+              aria-label="Информация о профиле"
             >
-              <img src="./freedom-logo.png" alt="" />
+              <Avatar name="Команда качества" />
               <span>
-                FREEDOM<small>BROKER</small>
+                Команда качества<small>Рабочее пространство CQA</small>
               </span>
-            </a>
+              <ChevronDown size={14} />
+            </button>
           </div>
         </header>
         <main id="main-content">
@@ -615,7 +621,7 @@ export default function App() {
                 />
                 <p className="analysis-run-source">
                   {selected.source === "ollama"
-                    ? `AI: ${selected.model} · ${selected.passes} прохода · ${selected.tokens} токенов · ${selected.cached ? "кэш" : "новый анализ"}`
+                    ? `AI: ${selected.model} · Вызовы модели: ${selected.passes} · ${selected.tokens} токенов · ${selected.cached ? "кэш" : "новый анализ"}`
                     : selected.status === "pending"
                       ? "Диалог ещё не оценён"
                       : "Синтетический демонстрационный пример — не результат AI"}
@@ -654,7 +660,7 @@ export default function App() {
                         setModal({
                           type: "criterion",
                           criterion: {
-                            id: crypto.randomUUID(),
+                            id: createId(),
                             title: "",
                             description: "",
                             weight: 10,
@@ -1264,7 +1270,7 @@ export default function App() {
                 <span>
                   <ShieldCheck size={14} /> Freedom Broker · Контроль качества
                 </span>
-                <span>Демо-данные · сохраняются в этом браузере</span>
+                <span>Версии правил и исходные реплики сохраняются</span>
               </footer>
             </>
           )}
@@ -1316,34 +1322,32 @@ export default function App() {
             <AppealForm
               context={modal}
               onSubmit={(comment) => {
-                setAppeals((old) => [
-                  {
-                    id: crypto.randomUUID(),
-                    dialogId: modal.dialog.id,
-                    criterionId: modal.result.criterionId,
-                    evaluationKey: evaluationIdentity(modal.dialog),
-                    evaluationId: modal.dialog.evaluationId || null,
-                    checklistVersion: modal.dialog.checklistVersion || 1,
-                    title:
-                      (modal.dialog.criteriaSnapshot || initialCriteria).find(
-                        (c) => c.id === modal.result.criterionId,
-                      )?.title || "Критерий",
-                    criterion: (
-                      modal.dialog.criteriaSnapshot || initialCriteria
-                    ).find((c) => c.id === modal.result.criterionId),
-                    originalAnswer: modal.result.answer,
-                    originalReason: modal.result.reason,
-                    evidenceId: modal.result.evidenceId,
-                    evidenceText:
-                      modal.dialog.messages.find(
-                        (m) => m.id === modal.result.evidenceId,
-                      )?.text || "",
-                    comment,
-                    status: "open",
-                    date: new Date().toLocaleDateString("ru-RU"),
-                  },
-                  ...old,
-                ]);
+                const appeal = {
+                  id: createId(),
+                  dialogId: modal.dialog.id,
+                  criterionId: modal.result.criterionId,
+                  evaluationKey: evaluationIdentity(modal.dialog),
+                  evaluationId: modal.dialog.evaluationId || null,
+                  checklistVersion: modal.dialog.checklistVersion || 1,
+                  title:
+                    (modal.dialog.criteriaSnapshot || initialCriteria).find(
+                      (c) => c.id === modal.result.criterionId,
+                    )?.title || "Критерий",
+                  criterion: (
+                    modal.dialog.criteriaSnapshot || initialCriteria
+                  ).find((c) => c.id === modal.result.criterionId),
+                  originalAnswer: modal.result.answer,
+                  originalReason: modal.result.reason,
+                  evidenceId: modal.result.evidenceId,
+                  evidenceText:
+                    modal.dialog.messages.find(
+                      (m) => m.id === modal.result.evidenceId,
+                    )?.text || "",
+                  comment,
+                  status: "open",
+                  date: new Date().toLocaleDateString("ru-RU"),
+                };
+                setAppeals((old) => [appeal, ...old]);
                 setModal(null);
                 setToast(
                   "Апелляция сохранена. Откройте раздел «Апелляции», чтобы рассмотреть её.",
@@ -1742,12 +1746,23 @@ function CriterionForm({ criterion, onSave }) {
 }
 function AppealForm({ onSubmit, context }) {
   const [comment, setComment] = useState("");
+  const [error, setError] = useState("");
+  const sending = useRef(false);
   return (
     <form
       className="form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (comment.trim()) onSubmit(comment.trim());
+        if (!comment.trim() || sending.current) return;
+        sending.current = true;
+        try {
+          onSubmit(comment.trim());
+        } catch {
+          setError(
+            "Не удалось отправить апелляцию. Текст сохранён — попробуйте ещё раз.",
+          );
+          sending.current = false;
+        }
       }}
     >
       {context && (
@@ -1787,6 +1802,11 @@ function AppealForm({ onSubmit, context }) {
           placeholder="Укажите, какая реплика подтверждает вашу позицию..."
         />
       </label>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
       <Button primary type="submit">
         Отправить на пересмотр <ArrowRight size={16} />
       </Button>
@@ -1886,9 +1906,65 @@ function DecisionForm({ appeal, onSave, onOpenDialog, dialog }) {
 function ImportForm({ existing, onImport }) {
   const [raw, setRaw] = useState(""),
     [error, setError] = useState("");
+  const [groupId, setGroupId] = useState("DEV");
+  const [loading, setLoading] = useState(false);
+  const [received, setReceived] = useState("");
+  const request = useRef(null);
+  useEffect(() => () => request.current?.abort(), []);
+  async function loadOrganizer() {
+    if (loading) return;
+    const controller = new AbortController();
+    request.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 65000);
+    setLoading(true);
+    setError("");
+    setReceived("");
+    try {
+      const response = await fetch(
+        "/api/organizer?group_id=" +
+          encodeURIComponent(groupId.trim() || "DEV"),
+        { signal: controller.signal },
+      );
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw Error(
+          "Сервер API не отвечает корректно. Проверьте, что запущен Python-сервис.",
+        );
+      }
+      if (!response.ok)
+        throw Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : "Не удалось получить диалоги.",
+        );
+      const records = data?.data?.records || data?.records;
+      if (!Array.isArray(records) || !records.length)
+        throw Error("API вернул пустой набор диалогов.");
+      setRaw(JSON.stringify(data));
+      const calls = records.filter((r) => r.channel === "voice call").length;
+      setReceived(
+        `Получено: ${records.length} · чаты: ${records.length - calls} · звонки: ${calls}. Нажмите «Импортировать».`,
+      );
+    } catch (e) {
+      if (request.current === controller)
+        setError(
+          e.name === "AbortError"
+            ? "Истекло время ожидания API. Попробуйте ещё раз или загрузите JSON."
+            : e.message,
+        );
+    } finally {
+      clearTimeout(timeout);
+      if (request.current === controller) {
+        request.current = null;
+        setLoading(false);
+      }
+    }
+  }
   function parse() {
     try {
-      const data = JSON.parse(raw),
+      const data = JSON.parse(raw.replace(/^\uFEFF/, "")),
         records = Array.isArray(data)
           ? data
           : data?.data?.records || data?.records;
@@ -1898,12 +1974,19 @@ function ImportForm({ existing, onImport }) {
         );
       const ids = new Set(existing.map((d) => d.id));
       const list = records.map((r, i) => {
-        if (!["agent chat", "voice call"].includes(r.channel))
+        if (
+          !r ||
+          typeof r !== "object" ||
+          !["agent chat", "voice call"].includes(r.channel)
+        )
           throw Error("Канал должен быть agent chat или voice call.");
         if (
-          !r.conversation_id ||
+          typeof r.conversation_id !== "string" ||
+          !r.conversation_id.trim() ||
+          r.conversation_id.length > 200 ||
           !Array.isArray(r.transcript) ||
-          !r.transcript.length
+          !r.transcript.length ||
+          r.transcript.length > 500
         )
           throw Error(
             `Запись ${i + 1}: нужны conversation_id и непустой transcript.`,
@@ -1917,6 +2000,8 @@ function ImportForm({ existing, onImport }) {
           throw Error("Допустимые языки: RU, KZ, EN.");
         const messages = r.transcript.map((m, j) => {
           if (
+            !m ||
+            typeof m !== "object" ||
             !["client", "operator", "bot", "system"].includes(m.speaker) ||
             typeof m.text !== "string" ||
             typeof m.timestamp !== "string"
@@ -1941,7 +2026,13 @@ function ImportForm({ existing, onImport }) {
           customer: "Клиент",
           initials: "К",
           agent: "Оператор",
-          topic: "Импортированный диалог",
+          topic:
+            typeof r.topic === "string" && r.topic.trim()
+              ? r.topic
+              : r.channel === "voice call"
+                ? "Телефонный разговор"
+                : "Импортированный диалог",
+          source: "organizer",
           channel: r.channel === "voice call" ? "call" : "chat",
           language: r.language,
           date: "Только что",
@@ -1964,24 +2055,28 @@ function ImportForm({ existing, onImport }) {
         Загрузите JSON, полученный из готового API. Поддерживается структура
         data.records. Подписанный URL в браузере не сохраняется.
       </p>
-      <Button
-        onClick={async () => {
-          try {
-            const r = await fetch(
-              "/api/organizer?group_id=" +
-                encodeURIComponent(prompt("group_id", "DEV") || "DEV"),
-            );
-            const data = await r.json();
-            if (!r.ok) throw Error(data.detail);
-            setRaw(JSON.stringify(data));
-            setError("");
-          } catch (e) {
-            setError(e.message);
-          }
-        }}
-      >
-        Получить данные организаторов
-      </Button>
+      <div className="organizer-import">
+        <label>
+          Группа данных
+          <input
+            aria-label="Группа данных"
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            disabled={loading}
+            placeholder="DEV"
+          />
+        </label>
+        <Button onClick={loadOrganizer} disabled={loading}>
+          {loading
+            ? "Получаем чаты и звонки…"
+            : "Получить данные организаторов"}
+        </Button>
+      </div>
+      {received && (
+        <p className="import-received" role="status">
+          {received}
+        </p>
+      )}
       <label className="upload-area">
         <Upload size={25} />
         <strong>Выберите JSON-файл</strong>
@@ -2019,8 +2114,9 @@ function ImportForm({ existing, onImport }) {
       <div className="notice">
         <CircleHelp size={18} />
         <span>
-          Импорт сохраняет транскрипты. Оценка моделью станет доступна после
-          подключения серверной части.
+          Чаты и телефонные разговоры анализируются по транскрипту. Запись
+          звонка доступна, если API передал аудио. Оценку запускает сервер;
+          готовые баллы не подставляются.
         </span>
       </div>
       <Button primary onClick={parse} disabled={!raw.trim()}>
@@ -2044,18 +2140,18 @@ function Methodology() {
         {[
           {
             n: "01",
-            title: "Контекст разговора",
-            text: "Учитываются запрос клиента, действия оператора и системные события. Сообщения бота служат контекстом.",
+            title: "Исходный разговор",
+            text: "Каждый специалист получает полный транскрипт чата или звонка. Действия оператора отделяются от реплик бота и системных событий.",
           },
           {
             n: "02",
-            title: "Версия чек-листа",
-            text: "Оценка связана с неизменяемой версией правил. Новый критерий применяется при новом запуске оценки.",
+            title: "Специалисты по критериям",
+            text: "В многоагентном режиме отдельная роль проверяет каждый текущий критерий. Новые правила получают своего специалиста при следующем запуске; прежние оценки сохраняют свой чек-лист.",
           },
           {
             n: "03",
-            title: "Доказательства",
-            text: "Для ответа указывается реплика. При пропуске действия — проверенный участок; при N/A — причина неприменимости.",
+            title: "Критик и доказательства",
+            text: "Критик перепроверяет ответы по полному исходному диалогу. Сервер сверяет точные цитаты, допустимые баллы и полноту критериев; необоснованный результат не подменяется готовой оценкой.",
           },
           {
             n: "04",

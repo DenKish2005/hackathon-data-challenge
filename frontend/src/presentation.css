@@ -1208,3 +1208,240 @@ main {
 .ca-transcript-footer {
   color: #687260;
 }
+/* Review workspace: evidence and decision actions stay in the working viewport. */
+.ca-conversation-track {
+  padding: 0 18px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+.ca-track-heading {
+  min-height: 43px;
+  margin: 0;
+  cursor: pointer;
+  list-style: none;
+}
+.ca-track-heading::-webkit-details-marker {
+  display: none;
+}
+.ca-track-heading > div:after {
+  content: "Развернуть";
+  font-size: 10px;
+  color: #64795b;
+  margin-left: 10px;
+}
+.ca-conversation-track[open] .ca-track-heading > div:after {
+  content: "Свернуть";
+}
+.ca-conversation-track[open] {
+  padding-bottom: 12px;
+}
+.ca-conversation-track[open] .ca-track-heading {
+  margin-bottom: 5px;
+}
+.ca-workspace {
+  height: clamp(560px, calc(100dvh - 282px), 850px);
+  align-items: stretch;
+}
+.ca-analysis:has(.ca-conversation-track[open]) .ca-workspace {
+  height: clamp(500px, calc(100dvh - 360px), 850px);
+}
+.ca-transcript-panel,
+.ca-quality-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ca-panel-heading {
+  flex-shrink: 0;
+}
+.ca-transcript-search {
+  flex-shrink: 0;
+}
+.ca-transcript-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.ca-transcript-footer,
+.ca-quality-footer {
+  flex-shrink: 0;
+}
+.ca-quality-overview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.ca-quality-overview .ca-criterion-list {
+  min-width: 0;
+}
+.ca-quality-overview .ca-criterion-row {
+  min-height: 38px;
+}
+.ca-explanation {
+  flex: 0 1 auto;
+  max-height: 48%;
+  min-height: 210px;
+  overflow: auto;
+  padding: 14px 20px 0;
+  background: #fafcf7;
+}
+.ca-explanation > p {
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ca-explanation blockquote {
+  margin: 9px 0;
+  padding: 8px 11px;
+}
+.ca-explanation blockquote p {
+  line-height: 1.5;
+}
+.ca-explanation-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: 0;
+  padding: 11px 0 14px;
+  background: #fafcf7;
+  z-index: 1;
+}
+.ca-explanation-actions button {
+  min-height: 36px;
+}
+.ca-search-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.ca-search-controls > span {
+  font-size: 10px;
+  white-space: nowrap;
+  margin-right: 4px;
+  color: #66715f;
+}
+.ca-search-controls button {
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 25px;
+  border-radius: 4px;
+  color: #5e6f52;
+  padding: 0;
+}
+.ca-search-controls button:hover {
+  background: #e7eddf;
+}
+.ca-unknown-flag {
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+  font-size: 10px;
+  color: #777d71;
+  line-height: 1.5;
+  margin-top: 10px;
+}
+.ca-unknown-flag svg {
+  flex-shrink: 0;
+}
+.ca-criterion-row.is-unknown .ca-result-symbol {
+  background: #f0f2ed;
+  color: #87907e;
+}
+.ca-criterion-row.is-unknown > strong {
+  color: #7a8272;
+  font-weight: 450;
+  font-size: 10px;
+}
+.ca-incomplete {
+  font-size: 11px;
+  line-height: 1.5;
+  background: #fff7df;
+  color: #806b35;
+  padding: 9px 18px;
+  border-bottom: 1px solid #eee4c5;
+  flex-shrink: 0;
+}
+.ca-review-history {
+  flex-shrink: 0;
+  max-height: 200px;
+  overflow: auto;
+}
+.modal {
+  color: #303b32;
+  border-radius: 12px;
+  box-shadow: 0 20px 70px #1d382733;
+}
+.modal-head h2 {
+  color: #2f3b32;
+  font-size: 20px;
+}
+.modal .form {
+  color: #4c594c;
+}
+.modal .muted,
+.modal .form-footer > span {
+  color: #697468;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.modal .context-label {
+  color: #687a60;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+.modal .context-answer {
+  color: #4b6740;
+  font-size: 13px;
+}
+.modal .appeal-context > p,
+.modal .appeal-context blockquote {
+  color: #52614b;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.modal .form input::placeholder,
+.modal .form textarea::placeholder {
+  color: #828d7d;
+}
+.modal .form > label,
+.modal .form-row label {
+  color: #485640;
+  font-size: 13px;
+}
+.workspace-error {
+  max-width: 640px;
+  margin: 12vh auto;
+  padding: 40px;
+  background: #fff;
+  border: 1px solid #e0e7da;
+  border-radius: 12px;
+}
+.workspace-error > img {
+  width: 48px;
+  height: 48px;
+  display: block;
+  margin-bottom: 22px;
+}
+.workspace-error > span {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #718168;
+}
+.workspace-error h1 {
+  font-size: 26px;
+  margin: 12px 0;
+}
+.workspace-error > p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #65725c;
+}
+.workspace-error > div {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+}
