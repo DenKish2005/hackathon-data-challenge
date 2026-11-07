@@ -35,7 +35,7 @@ from cqa.backend.schemas import (
     Schema,
 )
 from cqa.backend.services.appeal_service import create_appeal, review_appeal
-from cqa.backend.services.checklist_service import create_checklist
+from cqa.backend.services.checklist_service import create_checklist, seed_checklist
 from cqa.backend.services.dataset_importer import Conflict, fetch_organizer, import_dataset
 from cqa.backend.services.evaluation_jobs import create_job, inputs, job_view
 from cqa.infra.llm import ProviderError, build_provider
@@ -46,7 +46,6 @@ from cqa.infra.orchestrator.pipeline import (
     ProviderEvaluator,
 )
 from cqa.infra.orchestrator.queue import Worker, worker_lock
-from cqa.workspace import default_checklist
 
 
 class Health(Schema):
@@ -110,15 +109,7 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
     @asynccontextmanager
     async def lifespan(app):
         db.initialize()
-        with db.sessions() as session:
-            seeded = session.get(Checklist, ("official", 1)) is not None
-        if not seeded:
-            try:
-                create_checklist(
-                    db, ChecklistCreate(checklist_id="official", criteria=default_checklist())
-                )
-            except Conflict:
-                pass
+        seed_checklist(db)
         try:
             if worker_enabled:
                 with worker_lock(db):

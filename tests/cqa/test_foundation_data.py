@@ -138,3 +138,16 @@ def test_real_dev_file_when_supplied(database):
         lang: sum(r.language == lang for r in payload.data.records) for lang in ("RU", "KZ", "EN")
     } == {"RU": 35, "KZ": 15, "EN": 15}
     assert import_dataset(database, payload).imported == 65
+    assert import_dataset(database, payload).skipped == 65
+    with database.sessions() as session:
+        for record in payload.data.records:
+            conversation = session.get(Conversation, record.conversation_id)
+            assert conversation.audio_url == record.audio_url
+            messages = session.scalars(
+                select(Message)
+                .where(Message.conversation_id == record.conversation_id)
+                .order_by(Message.message_index)
+            ).all()
+            assert [(m.speaker, m.timestamp_original, m.text) for m in messages] == [
+                (m.speaker, m.timestamp, m.text) for m in record.transcript
+            ]
