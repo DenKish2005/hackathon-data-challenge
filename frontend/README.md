@@ -109,3 +109,17 @@ A repository administrator must enable **Settings → Pages → Build and deploy
 The production build uses relative asset paths, and hash routes work at a repository subpath. No server-side API or model is deployed by this workflow: it publishes the frontend prototype.
 
 The supplied `https://fbroker.kz/statistics` reference could not be captured in this environment because outbound policy denied that destination. The flow and Freedom-inspired styling were verified on the local implementation, not against a captured copy of that page.
+
+## Dark review workspace
+
+The primary task remains **select a dialogue → verify its evaluation → inspect evidence → appeal when needed**. The UI now uses one dark token-based stylesheet (`src/styles.css`) and a dedicated `ReviewWorkspace` component. Old decorative analytics and overlapping theme stylesheets were removed.
+
+- Queue tabs expose all, review, pending and critical cases; search, language/channel filters, score sorting and ten-row pagination work together.
+- Returning through “К списку диалогов” preserves the queue query. Ctrl/Cmd+K focuses search; previous/next controls follow the filtered queue.
+- The desktop review is one compact score strip and two independently scrolling panes. One criterion expands at a time, with its reason, calculated contribution and a quote from the actual transcript.
+- Transcript search marks matches and supports Enter/Shift+Enter navigation. Evidence links highlight and focus their source message.
+- Mobile uses cards with visible score/status and separate evaluation/transcript tabs; evidence navigation switches panes automatically.
+- Appeals and decisions include the original answer, explanation and source quote. The review history uses saved appeals rather than generated events.
+- Agent implementation details are moved to a short methodology page; there are no simulated agent activity indicators or promotional panels.
+
+See [UX review and verification](docs/ux-review.md). This is still a browser-local prototype with demonstration evaluations; the redesign does not introduce a live scoring model or shared persistence.

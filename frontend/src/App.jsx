@@ -42,7 +42,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
-import DialogueAnalytics from "./DialogueAnalytics";
+import ReviewWorkspace from "./ReviewWorkspace";
 import {
   initialCriteria,
   conversations as demoConversations,
@@ -52,15 +52,15 @@ const icons = {
   overview: LayoutDashboard,
   conversations: MessageCircle,
   criteria: SlidersHorizontal,
-  agents: Sparkles,
+  agents: BookOpen,
   appeals: ShieldCheck,
 };
 const names = {
   conversations: "Диалоги",
+  appeals: "Апелляции",
   overview: "Общая статистика",
   criteria: "Критерии оценки",
-  agents: "ИИ-команда",
-  appeals: "Апелляции",
+  agents: "Методика",
 };
 function stored(k, f) {
   try {
@@ -183,7 +183,8 @@ export default function App() {
     [toast, setToast] = useState(""),
     [mobile, setMobile] = useState(false),
     [period, setPeriod] = useState("Последние 7 оценок"),
-    [highlight, setHighlight] = useState(null);
+    [sortKey, setSortKey] = useState("recent"),
+    [queuePage, setQueuePage] = useState(1);
   useEffect(() => {
     localStorage.setItem("freedom-cqa-dialogs", JSON.stringify(dialogs));
   }, [dialogs]);
@@ -203,7 +204,6 @@ export default function App() {
     setPage(p);
     setSelected(null);
     setSearch("");
-    setHighlight(null);
     setMobile(false);
     if (window.location.hash !== "#" + p)
       window.history.pushState(null, "", "#" + p);
@@ -211,7 +211,6 @@ export default function App() {
   function openDialog(dialog) {
     setSelected(dialog);
     setPage("conversations");
-    setHighlight(null);
     const route = "#dialog/" + encodeURIComponent(dialog.id);
     if (window.location.hash !== route)
       window.history.pushState(null, "", route);
@@ -231,7 +230,6 @@ export default function App() {
         if (found) {
           setSelected(found);
           setPage("conversations");
-          setHighlight(null);
         } else {
           setSelected(null);
           setPage("conversations");
@@ -252,15 +250,53 @@ export default function App() {
       window.removeEventListener("hashchange", syncRoute);
     };
   }, [dialogs]);
-  const filtered = dialogs.filter(
-    (d) =>
-      (lang === "Все языки" || d.language === lang) &&
-      (channel === "Все каналы" || d.channel === channel) &&
-      (status === "Все статусы" || d.status === status) &&
-      `${d.id} ${d.customer} ${d.agent} ${d.topic}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
+  const filtered = dialogs
+    .filter(
+      (d) =>
+        (lang === "Все языки" || d.language === lang) &&
+        (channel === "Все каналы" || d.channel === channel) &&
+        (status === "Все статусы" ||
+          (status === "critical" ? d.critical : d.status === status)) &&
+        `${d.id} ${d.customer} ${d.agent} ${d.topic}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+    )
+    .sort((a, b) =>
+      sortKey === "low"
+        ? (a.score ?? Infinity) - (b.score ?? Infinity)
+        : sortKey === "high"
+          ? (b.score ?? -1) - (a.score ?? -1)
+          : 0,
+    );
+  const queuePages = Math.max(1, Math.ceil(filtered.length / 10));
+  const visibleDialogs =
+    page === "overview"
+      ? filtered.slice(0, 5)
+      : filtered.slice((queuePage - 1) * 10, queuePage * 10);
+  useEffect(() => setQueuePage(1), [search, lang, channel, status, sortKey]);
+  const reviewQueue =
+    selected && filtered.some((d) => d.id === selected.id) ? filtered : dialogs;
+  const reviewIndex = selected
+    ? reviewQueue.findIndex((d) => d.id === selected.id)
+    : -1;
+  function closeDialog() {
+    setSelected(null);
+    setPage("conversations");
+    window.history.pushState(null, "", "#conversations");
+  }
+  useEffect(() => {
+    const shortcut = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && !modal) {
+        e.preventDefault();
+        if (page !== "conversations" || selected) navigate("conversations");
+        requestAnimationFrame(() =>
+          document.querySelector('[aria-label="Поиск диалогов"]')?.focus(),
+        );
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [modal, page, selected]);
   const evaluated = dialogs.filter(
       (d) => d.status !== "pending" && typeof d.score === "number",
     ),
@@ -325,12 +361,6 @@ export default function App() {
     URL.revokeObjectURL(a.href);
     setToast("Отчёт экспортирован в JSON");
   }
-  function evidence(id) {
-    setHighlight(id);
-    document
-      .getElementById("msg-" + id)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
   function saveCriterion(c) {
     setCriteria((old) =>
       old.some((x) => x.id === c.id)
@@ -345,6 +375,9 @@ export default function App() {
   }
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Перейти к содержимому
+      </a>
       <aside className={"sidebar " + (mobile ? "mobile-open" : "")}>
         <a
           className="brand"
@@ -366,12 +399,12 @@ export default function App() {
             <Activity size={18} />
           </span>
           <div>
-            <strong>Quality Intelligence</strong>
-            <small>Аналитика диалогов</small>
+            <strong>Контроль качества</strong>
+            <small>Рабочее пространство</small>
           </div>
           <ChevronsUpDown size={15} />
         </div>
-        <div className="nav-label">ВАШЕ РАБОЧЕЕ ПРОСТРАНСТВО</div>
+        <div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
         <nav>
           {Object.entries(names).map(([key, title]) => {
             const Icon = icons[key];
@@ -392,29 +425,19 @@ export default function App() {
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="insight-card">
-            <span className="insight-icon">
-              <Sparkles size={18} />
-            </span>
-            <strong>Ваш стандарт качества.</strong>
-            <p>Настройте критерии под задачи вашей команды.</p>
-            <button onClick={() => navigate("criteria")}>
-              Настроить чек-лист <ArrowUpRight size={15} />
-            </button>
-          </div>
           <button
             className="nav-item"
             onClick={() => setModal({ type: "help" })}
           >
             <CircleHelp size={18} />
-            <span>Помощь и поддержка</span>
+            <span>Как пользоваться</span>
             <ArrowUpRight size={14} />
           </button>
           <div className="profile">
-            <Avatar name="Алина Садыкова" />
+            <Avatar name="Команда качества" />
             <div>
-              <strong>Алина Садыкова</strong>
-              <small>Администратор</small>
+              <strong>Команда качества</strong>
+              <small>Демонстрационный режим</small>
             </div>
             <button
               className="icon-button"
@@ -441,7 +464,7 @@ export default function App() {
             </button>
             <span>Freedom Broker</span>
             <ChevronRight size={14} />
-            <strong>{selected ? "Аналитика диалога" : names[page]}</strong>
+            <strong>{selected ? selected.id : names[page]}</strong>
           </div>
           <div className="topbar-actions">
             <span className="demo-chip">
@@ -449,38 +472,64 @@ export default function App() {
               Демо-данные
             </span>
             <button
-              className="icon-button notification"
-              aria-label="Уведомления"
-              onClick={() => setModal({ type: "notifications" })}
+              className="search-shortcut"
+              aria-label="Быстрый поиск — Ctrl K"
+              onClick={() => {
+                if (page !== "conversations" || selected)
+                  navigate("conversations");
+                requestAnimationFrame(() =>
+                  document
+                    .querySelector('[aria-label="Поиск диалогов"]')
+                    ?.focus(),
+                );
+              }}
             >
-              <Bell size={19} />
-              <i />
+              <Search size={14} />
+              <kbd>Ctrl K</kbd>
             </button>
-            <div className="header-divider" />
-            <Avatar name="Алина Садыкова" small />
           </div>
         </header>
-        <main>
+        <main id="main-content">
           {selected ? (
             <>
-              <button
-                className="back-link"
-                onClick={() => navigate("conversations")}
-              >
+              <button className="back-link" onClick={closeDialog}>
                 <ArrowLeft size={16} /> К списку диалогов
               </button>
               <div className="page-heading">
                 <div>
                   <div className="eyebrow">АНАЛИТИКА / {selected.id}</div>
-                  <h1>Аналитика диалога</h1>
+                  <h1>{selected.topic}</h1>
                   <p>
-                    <strong>{selected.topic}</strong>{" "}
-                    <span className="dot-sep">•</span> {selected.customer}{" "}
-                    <span className="dot-sep">•</span> {selected.language}{" "}
-                    <span className="dot-sep">•</span> {selected.duration}
+                    {selected.id} <span className="dot-sep">•</span>{" "}
+                    {selected.customer} <span className="dot-sep">•</span>{" "}
+                    {selected.language} <span className="dot-sep">•</span>{" "}
+                    {selected.duration}
                   </p>
                 </div>
                 <div className="dialogue-heading-tools">
+                  <div className="review-pagination">
+                    <button
+                      className="icon-button"
+                      aria-label="Предыдущий диалог"
+                      disabled={reviewIndex <= 0}
+                      onClick={() => openDialog(reviewQueue[reviewIndex - 1])}
+                    >
+                      <ArrowLeft size={16} />
+                    </button>
+                    <span>
+                      {reviewIndex + 1} / {reviewQueue.length}
+                    </span>
+                    <button
+                      className="icon-button"
+                      aria-label="Следующий диалог"
+                      disabled={
+                        reviewIndex < 0 || reviewIndex >= reviewQueue.length - 1
+                      }
+                      onClick={() => openDialog(reviewQueue[reviewIndex + 1])}
+                    >
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
                   <select
                     aria-label="Выбрать другой диалог"
                     value={selected.id}
@@ -501,193 +550,37 @@ export default function App() {
                   </Button>
                 </div>
               </div>
-              <DialogueAnalytics
+              <ReviewWorkspace
+                key={selected.id}
                 dialog={selected}
-                criteria={selected.criteriaSnapshot || initialCriteria}
-                onEvidence={evidence}
-                onOpenAppeal={(result) =>
+                appeals={appeals.filter((a) => a.dialogId === selected.id)}
+                onAppeal={(result) =>
                   setModal({ type: "appeal", dialog: selected, result })
                 }
               />
-              <div className="detail-grid">
-                <section className="panel transcript">
-                  <div className="panel-heading">
-                    <h2>
-                      <MessageCircle size={18} /> Транскрипт
-                    </h2>
-                    <span className="muted">
-                      {selected.messages.length} реплик
-                    </span>
-                  </div>
-                  {selected.channel === "call" && (
-                    <div className="audio-note">
-                      <AudioLines size={20} />
-                      <div>
-                        <strong>Запись разговора</strong>
-                        <small>
-                          {selected.audio_url
-                            ? "Открыть оригинальную запись"
-                            : "В демо доступен только транскрипт"}
-                        </small>
-                      </div>
-                      {selected.audio_url && (
-                        <a
-                          href={selected.audio_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <ExternalLink size={18} />
-                        </a>
-                      )}
-                    </div>
-                  )}
-                  <div className="messages">
-                    {selected.messages.map((m) => (
-                      <div
-                        id={"msg-" + m.id}
-                        key={m.id}
-                        className={
-                          "message " +
-                          m.role +
-                          (highlight === m.id ? " highlighted" : "")
-                        }
-                      >
-                        <div className="message-meta">
-                          <span>
-                            {m.role === "operator"
-                              ? selected.agent
-                              : m.role === "system"
-                                ? "Система"
-                                : m.role === "bot"
-                                  ? "Бот"
-                                  : selected.customer}
-                          </span>
-                          <time>{m.time}</time>
-                        </div>
-                        <p>{m.text}</p>
-                        <small>#{m.id}</small>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-                <section className="panel evaluation">
-                  <div className="panel-heading">
-                    <h2>Оценка качества</h2>
-                    <span className="version-pill">
-                      v{selected.checklistVersion || 1}
-                    </span>
-                  </div>
-                  <div className="original-note">
-                    {!selected.results?.length
-                      ? "Оценка ещё не получена. Подключите сервер оценивания."
-                      : selected.originalScore !== undefined
-                        ? `Исходная оценка: ${selected.originalScore} · результат после пересмотра`
-                        : "Демонстрационная оценка · не результат запуска модели"}
-                  </div>
-                  <div className="criteria-results">
-                    {selected.critical && (
-                      <div className="critical-notice">
-                        <AlertTriangle size={16} />
-                        Выявлена грубая ошибка. Флаг учитывается отдельно от
-                        балла.
-                      </div>
-                    )}
-                    {(selected.results || []).map((r) => {
-                      const c = (
-                        selected.criteriaSnapshot || initialCriteria
-                      ).find((c) => c.id === r.criterionId);
-                      return (
-                        <div className="criterion-result" key={r.criterionId}>
-                          <div className="criterion-title">
-                            <span>
-                              {c?.title || "Критерий " + r.criterionId}
-                            </span>
-                            <b
-                              className={
-                                r.answer === "Нет" && c?.type !== "flag"
-                                  ? "negative"
-                                  : r.answer === "N/A"
-                                    ? "na"
-                                    : "positive"
-                              }
-                            >
-                              {r.answer}
-                              {typeof r.answer === "number"
-                                ? "/" + Math.max(...(c?.scale || [20]))
-                                : ""}
-                            </b>
-                          </div>
-                          <p>{r.reason}</p>
-                          {selected.originalResults &&
-                            selected.originalResults.find(
-                              (o) => o.criterionId === r.criterionId,
-                            )?.answer !== r.answer && (
-                              <p className="original-answer">
-                                До пересмотра:{" "}
-                                {
-                                  selected.originalResults.find(
-                                    (o) => o.criterionId === r.criterionId,
-                                  )?.answer
-                                }
-                              </p>
-                            )}
-                          <div className="criterion-actions">
-                            <button onClick={() => evidence(r.evidenceId)}>
-                              <FileText size={13} /> Реплика #{r.evidenceId}
-                            </button>
-                            <button
-                              onClick={() =>
-                                setModal({
-                                  type: "appeal",
-                                  dialog: selected,
-                                  result: r,
-                                })
-                              }
-                            >
-                              Оспорить <ArrowUpRight size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {!selected.results?.length && (
-                      <div className="empty-state">
-                        <Clock />
-                        <h3>Ожидает оценки</h3>
-                        <p>
-                          Диалог импортирован. Для анализа подключите сервис
-                          оценивания.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              </div>
             </>
           ) : (
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">
-                    FREEDOM BROKER / QUALITY INTELLIGENCE
-                  </div>
+                  <div className="eyebrow">КОНТРОЛЬ КАЧЕСТВА</div>
                   <h1>
                     {page === "overview"
                       ? "Обзор качества"
                       : page === "conversations"
-                        ? "Выберите диалог"
+                        ? "Диалоги"
                         : names[page]}
                   </h1>
                   <p>
                     {page === "overview"
                       ? "Вся картина клиентского сервиса. От первого сообщения до результата."
                       : page === "conversations"
-                        ? "Откройте один разговор, чтобы увидеть его оценку, аналитику и доказательства."
+                        ? "Проверяйте оценки, находите нарушения и разбирайте спорные ответы."
                         : page === "criteria"
-                          ? "Ваш стандарт качества. Гибкие правила для каждого разговора."
+                          ? "Правила оценки, веса критериев и версии чек-листа."
                           : page === "agents"
-                            ? "Специализированные роли, которые видят разговор с разных сторон."
-                            : "Прозрачный пересмотр. Каждое решение имеет значение."}
+                            ? "Применимость критериев, расчёт баллов и порядок пересмотра."
+                            : "Обращения по спорным оценкам и решения проверяющих."}
                   </p>
                 </div>
                 <div className="heading-actions">
@@ -713,6 +606,14 @@ export default function App() {
                       <Plus size={17} />
                       Добавить критерий
                     </Button>
+                  ) : page === "appeals" ? (
+                    <Button onClick={() => navigate("conversations")}>
+                      Выбрать диалог <ArrowRight size={14} />
+                    </Button>
+                  ) : page === "agents" ? (
+                    <Button onClick={() => navigate("criteria")}>
+                      Открыть чек-лист <ArrowRight size={14} />
+                    </Button>
                   ) : (
                     <>
                       <Button onClick={exportData}>
@@ -730,45 +631,13 @@ export default function App() {
                   )}
                 </div>
               </div>
-              {page === "conversations" && (
-                <section className="dialogue-selection-intro">
-                  <div className="selection-step">
-                    <span>01</span>
-                    <div>
-                      <strong>Выберите диалог</strong>
-                      <small>Найдите нужный разговор в списке</small>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} />
-                  <div className="selection-step next">
-                    <span>02</span>
-                    <div>
-                      <strong>Изучите аналитику</strong>
-                      <small>Оценки и нарушения именно этого диалога</small>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} />
-                  <div className="selection-step next">
-                    <span>03</span>
-                    <div>
-                      <strong>Проверьте доказательства</strong>
-                      <small>Перейдите к реплике или подайте апелляцию</small>
-                    </div>
-                  </div>
-                </section>
-              )}
               {page === "overview" && (
                 <>
-                  <FreedomHero
-                    average={average}
-                    count={evaluated.length}
-                    onOpen={() => navigate("conversations")}
-                  />
                   <div className="toolbar overview-toolbar">
                     <div className="segmented">
                       <button className="selected">Общая аналитика</button>
                       <button onClick={() => navigate("agents")}>
-                        Работа ИИ-команды <Sparkles size={13} />
+                        Методика оценки
                       </button>
                     </div>
                     <select
@@ -893,36 +762,52 @@ export default function App() {
                       </small>
                     </section>
                   </div>
-                  <div className="agent-banner">
-                    <span className="agent-banner-icon">
-                      <Sparkles size={22} />
-                    </span>
-                    <div>
-                      <strong>Один разговор. Несколько точек зрения.</strong>
-                      <p>
-                        ИИ-агенты находят факты, проверяют критерии и объясняют
-                        каждый вывод.
-                      </p>
-                    </div>
-                    <div className="agent-mini-icons">
-                      <span>
-                        <Search size={15} />
-                      </span>
-                      <span>
-                        <Users size={15} />
-                      </span>
-                      <span>
-                        <ShieldCheck size={15} />
-                      </span>
-                    </div>
-                    <button onClick={() => navigate("agents")}>
-                      Ваша ИИ-команда <ArrowUpRight size={16} />
-                    </button>
-                  </div>
                 </>
               )}
               {(page === "overview" || page === "conversations") && (
                 <section className="panel table-panel">
+                  {page === "conversations" && (
+                    <div
+                      className="queue-tabs"
+                      role="group"
+                      aria-label="Очередь диалогов"
+                    >
+                      {[
+                        {
+                          v: "Все статусы",
+                          label: "Все диалоги",
+                          count: dialogs.length,
+                        },
+                        {
+                          v: "review",
+                          label: "На проверке",
+                          count: dialogs.filter((d) => d.status === "review")
+                            .length,
+                        },
+                        {
+                          v: "pending",
+                          label: "Без оценки",
+                          count: dialogs.filter((d) => d.status === "pending")
+                            .length,
+                        },
+                        {
+                          v: "critical",
+                          label: "Грубые ошибки",
+                          count: dialogs.filter((d) => d.critical).length,
+                        },
+                      ].map((t) => (
+                        <button
+                          key={t.v}
+                          aria-pressed={status === t.v}
+                          className={status === t.v ? "active" : ""}
+                          onClick={() => setStatus(t.v)}
+                        >
+                          {t.label}
+                          <span>{t.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="panel-heading">
                     <div className="title-with-count">
                       <h2>
@@ -972,14 +857,13 @@ export default function App() {
                         <option value="call">Звонки</option>
                       </select>
                       <select
-                        aria-label="Статус"
-                        value={status}
-                        onChange={(e) => setStatus(e.target.value)}
+                        aria-label="Сортировка"
+                        value={sortKey}
+                        onChange={(e) => setSortKey(e.target.value)}
                       >
-                        <option>Все статусы</option>
-                        <option value="done">Оценён</option>
-                        <option value="review">На проверке</option>
-                        <option value="pending">Ожидает оценки</option>
+                        <option value="recent">Сначала новые</option>
+                        <option value="low">Оценка: по возрастанию</option>
+                        <option value="high">Оценка: по убыванию</option>
                       </select>
                     </div>
                   </div>
@@ -999,82 +883,126 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filtered
-                          .slice(0, page === "overview" ? 5 : 100)
-                          .map((d) => (
-                            <tr key={d.id} onClick={() => openDialog(d)}>
-                              <td>
-                                <button
-                                  className="dialog-button"
-                                  onClick={() => openDialog(d)}
+                        {visibleDialogs.map((d) => (
+                          <tr key={d.id} onClick={() => openDialog(d)}>
+                            <td>
+                              <button
+                                className="dialog-button"
+                                onClick={() => openDialog(d)}
+                              >
+                                <span
+                                  className={
+                                    "conversation-icon " +
+                                    (d.channel === "call" ? "call" : "")
+                                  }
                                 >
-                                  <span
-                                    className={
-                                      "conversation-icon " +
-                                      (d.channel === "call" ? "call" : "")
-                                    }
-                                  >
-                                    {d.channel === "call" ? (
-                                      <Headphones size={17} />
-                                    ) : (
-                                      <MessageCircle size={17} />
-                                    )}
-                                  </span>
-                                  <span>
-                                    <strong>{d.topic}</strong>
-                                    <small>
-                                      {d.id} <span>·</span> {d.customer}
-                                    </small>
-                                  </span>
-                                </button>
-                              </td>
-                              <td>
-                                <div className="operator">
-                                  <Avatar name={d.agent} small />
-                                  <span>{d.agent}</span>
-                                </div>
-                              </td>
-                              <td>
-                                <span className="channel-label">
-                                  {d.channel === "call" ? "Звонок" : "Чат"}
+                                  {d.channel === "call" ? (
+                                    <Headphones size={17} />
+                                  ) : (
+                                    <MessageCircle size={17} />
+                                  )}
                                 </span>
-                                <span className="language">{d.language}</span>
-                              </td>
-                              <td>
-                                {d.status === "pending" ? (
-                                  <span className="muted">—</span>
-                                ) : (
-                                  <span
-                                    className={
-                                      "score " +
-                                      (d.score >= 85
-                                        ? "high"
-                                        : d.score >= 70
-                                          ? "mid"
-                                          : "low")
-                                    }
-                                  >
-                                    {d.score}
-                                    <small>/100</small>
-                                  </span>
-                                )}
-                              </td>
-                              <td>
-                                <Badge status={d.status} />
-                              </td>
-                              <td className="date-cell">{d.date}</td>
-                              <td>
-                                <button
-                                  className="analysis-row-action"
-                                  onClick={() => openDialog(d)}
+                                <span>
+                                  <strong>{d.topic}</strong>
+                                  <small>
+                                    {d.id} <span>·</span> {d.customer}
+                                  </small>
+                                </span>
+                              </button>
+                            </td>
+                            <td>
+                              <div className="operator">
+                                <Avatar name={d.agent} small />
+                                <span>{d.agent}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="channel-label">
+                                {d.channel === "call" ? "Звонок" : "Чат"}
+                              </span>
+                              <span className="language">{d.language}</span>
+                            </td>
+                            <td className="score-cell">
+                              {d.critical && (
+                                <AlertTriangle
+                                  size={13}
+                                  className="critical-indicator"
+                                  aria-label="Грубая ошибка"
+                                />
+                              )}
+                              {d.status === "pending" ? (
+                                <span className="muted">—</span>
+                              ) : (
+                                <span
+                                  className={
+                                    "score " +
+                                    (d.score >= 85
+                                      ? "high"
+                                      : d.score >= 70
+                                        ? "mid"
+                                        : "low")
+                                  }
                                 >
-                                  Аналитика <ArrowUpRight size={15} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                                  {d.score}
+                                  <small>/100</small>
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <Badge status={d.status} />
+                            </td>
+                            <td className="date-cell">{d.date}</td>
+                            <td>
+                              <button
+                                className="analysis-row-action"
+                                onClick={() => openDialog(d)}
+                              >
+                                Открыть <ArrowUpRight size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="mobile-dialog-list">
+                    {visibleDialogs.map((d) => (
+                      <button
+                        className="mobile-dialog"
+                        key={d.id}
+                        onClick={() => openDialog(d)}
+                        aria-label={`Открыть диалог ${d.id}: ${d.topic}`}
+                      >
+                        <span className="mobile-dialog-top">
+                          <span className="mobile-dialog-id">
+                            {d.id} · {d.language}
+                          </span>
+                          <Badge status={d.status} />
+                        </span>
+                        <span className="mobile-dialog-content">
+                          <span>
+                            <strong>{d.topic}</strong>
+                            <small>{d.customer}</small>
+                          </span>
+                          <span
+                            className={
+                              "score " + (d.score >= 85 ? "high" : "mid")
+                            }
+                          >
+                            {d.status === "pending" ? "—" : d.score}
+                            <small>/100</small>
+                            {d.critical && <AlertTriangle size={13} />}
+                          </span>
+                        </span>
+                        <span className="mobile-dialog-bottom">
+                          <span>
+                            {d.agent} ·{" "}
+                            {d.channel === "call" ? "Звонок" : "Чат"}
+                          </span>
+                          <ArrowUpRight size={14} />
+                        </span>
+                      </button>
+                    ))}
                   </div>
                   {filtered.length === 0 && (
                     <div className="empty-state">
@@ -1096,14 +1024,37 @@ export default function App() {
                   )}
                   <div className="table-footer">
                     <span>
-                      Показано{" "}
-                      {Math.min(filtered.length, page === "overview" ? 5 : 100)}{" "}
-                      из {filtered.length} диалогов
+                      Показано {visibleDialogs.length} из {filtered.length}{" "}
+                      диалогов
                     </span>
-                    <span className="live-label">
-                      <span />
-                      Демонстрационный набор
-                    </span>
+                    {page === "conversations" && queuePages > 1 ? (
+                      <div className="queue-pagination">
+                        <button
+                          className="icon-button"
+                          aria-label="Предыдущая страница"
+                          disabled={queuePage <= 1}
+                          onClick={() => setQueuePage((p) => p - 1)}
+                        >
+                          <ArrowLeft size={14} />
+                        </button>
+                        <span>
+                          {queuePage} / {queuePages}
+                        </span>
+                        <button
+                          className="icon-button"
+                          aria-label="Следующая страница"
+                          disabled={queuePage >= queuePages}
+                          onClick={() => setQueuePage((p) => p + 1)}
+                        >
+                          <ArrowRight size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="live-label">
+                        <span />
+                        Демонстрационный набор
+                      </span>
+                    )}
                   </div>
                 </section>
               )}
@@ -1157,95 +1108,7 @@ export default function App() {
                   </div>
                 </>
               )}
-              {page === "agents" && (
-                <>
-                  <div className="notice">
-                    <Sparkles size={20} />
-                    <div>
-                      <strong>Специализация вместо случайных мнений</strong>
-                      <p>
-                        Шесть логических ролей. Баллы рассчитываются программно
-                        по версии чек-листа.
-                      </p>
-                    </div>
-                    <span className="demo-chip">Демо</span>
-                  </div>
-                  <div className="agents-grid">
-                    {[
-                      {
-                        icon: Search,
-                        name: "Extractor",
-                        role: "Находит важное",
-                        text: "Извлекает факты, вопросы клиента и действия оператора. Сохраняет связь с исходными репликами.",
-                        color: "mint",
-                      },
-                      {
-                        icon: Globe,
-                        name: "Classifier",
-                        role: "Понимает контекст",
-                        text: "Определяет темы и категории обращений на русском, казахском и английском.",
-                        color: "blue",
-                      },
-                      {
-                        icon: Users,
-                        name: "Customer Analyst",
-                        role: "Слышит клиента",
-                        text: "Анализирует потребности, неудобства и реакцию оператора на недовольство клиента.",
-                        color: "peach",
-                      },
-                      {
-                        icon: FileCheck2,
-                        name: "Process Analyst",
-                        role: "Проверяет по правилам",
-                        text: "Применяет актуальную версию критериев. Новый критерий передаётся универсальному оценщику.",
-                        color: "mint",
-                      },
-                      {
-                        icon: ShieldCheck,
-                        name: "Critic",
-                        role: "Проверяет доказательства",
-                        text: "Ищет противоречия, проверяет ссылки на реплики и обоснованность N/A.",
-                        color: "purple",
-                      },
-                      {
-                        icon: Zap,
-                        name: "Business Strategist",
-                        role: "Превращает выводы в действия",
-                        text: "Формирует рекомендации по завершённым оценкам. Не влияет на итоговый балл.",
-                        color: "peach",
-                      },
-                    ].map((a, i) => (
-                      <article className="panel agent-card" key={a.name}>
-                        <div className={"agent-card-icon " + a.color}>
-                          <a.icon size={24} />
-                        </div>
-                        <span className="agent-index">0{i + 1}</span>
-                        <h2>{a.name}</h2>
-                        <strong>{a.role}</strong>
-                        <p>{a.text}</p>
-                        <div className="agent-card-footer">
-                          <span className="muted">Подключение через API</span>
-                          <span className="status-dot" />
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="panel architecture-note">
-                    <Activity size={22} />
-                    <div>
-                      <h2>Прозрачный путь к оценке</h2>
-                      <p>
-                        Факты → специализированные оценщики → проверка
-                        доказательств → расчёт баллов → дашборд
-                      </p>
-                      <small>
-                        В этой версии интерфейса модели не запускаются. Карточки
-                        описывают запланированные роли.
-                      </small>
-                    </div>
-                  </div>
-                </>
-              )}
+              {page === "agents" && <Methodology />}
               {page === "appeals" && (
                 <section className="panel">
                   <div className="panel-heading">
@@ -1309,12 +1172,9 @@ export default function App() {
               )}
               <footer className="page-footer">
                 <span>
-                  <ShieldCheck size={14} /> Freedom Broker · Quality
-                  Intelligence
+                  <ShieldCheck size={14} /> Freedom Broker · Контроль качества
                 </span>
-                <span>
-                  RU · KZ · EN <span className="dot-sep">•</span> CQA workspace
-                </span>
+                <span>Демо-данные · сохраняются в этом браузере</span>
               </footer>
             </>
           )}
@@ -1364,6 +1224,7 @@ export default function App() {
             />
           ) : modal.type === "appeal" ? (
             <AppealForm
+              context={modal}
               onSubmit={(comment) => {
                 setAppeals((old) => [
                   {
@@ -1378,6 +1239,12 @@ export default function App() {
                       modal.dialog.criteriaSnapshot || initialCriteria
                     ).find((c) => c.id === modal.result.criterionId),
                     originalAnswer: modal.result.answer,
+                    originalReason: modal.result.reason,
+                    evidenceId: modal.result.evidenceId,
+                    evidenceText:
+                      modal.dialog.messages.find(
+                        (m) => m.id === modal.result.evidenceId,
+                      )?.text || "",
                     comment,
                     status: "open",
                     date: new Date().toLocaleDateString("ru-RU"),
@@ -1392,12 +1259,12 @@ export default function App() {
             />
           ) : modal.type === "decision" ? (
             <DecisionForm
+              dialog={dialogs.find((d) => d.id === modal.appeal.dialogId)}
               appeal={modal.appeal}
               onOpenDialog={() => {
                 const d = dialogs.find((d) => d.id === modal.appeal.dialogId);
                 openDialog(d);
                 setModal(null);
-                setHighlight(null);
               }}
               onSave={(answer, reason) => {
                 const a = modal.appeal;
@@ -1458,9 +1325,9 @@ export default function App() {
             </div>
           ) : modal.type === "profile" ? (
             <div className="modal-content">
-              <Avatar name="Алина Садыкова" />
-              <h3>Алина Садыкова</h3>
-              <p>Freedom Broker · Администратор</p>
+              <Avatar name="Команда качества" />
+              <h3>Команда качества</h3>
+              <p>Freedom Broker · Демонстрационный режим</p>
               <p>
                 Демонстрационный профиль. Авторизация для прототипа не
                 требуется.
@@ -1521,76 +1388,6 @@ function Stat({
         {note}
       </div>
     </article>
-  );
-}
-function FreedomHero({ average, count, onOpen }) {
-  return (
-    <section className="freedom-hero" aria-label="Freedom Quality Intelligence">
-      <div className="hero-copy">
-        <span className="hero-kicker">
-          <span />
-          FREEDOM QUALITY
-        </span>
-        <h2>
-          Сильный сервис.
-          <br />
-          <span>В каждом диалоге.</span>
-        </h2>
-        <p>
-          Понимайте клиентов. Поддерживайте команду.
-          <br />
-          Превращайте разговоры в точные решения.
-        </p>
-        <button onClick={onOpen}>
-          Перейти к диалогам <ArrowUpRight size={17} />
-        </button>
-      </div>
-      <div className="hero-visual" aria-hidden="true">
-        <div className="hero-orbit orbit-one" />
-        <div className="hero-orbit orbit-two" />
-        <span className="hero-orbit-dot" />
-        <div className="hero-score-card">
-          <div className="hero-score-label">
-            <ShieldCheck size={15} />
-            КАЧЕСТВО СЕРВИСА
-          </div>
-          <div className="hero-score-value">
-            <svg viewBox="0 0 120 120">
-              <circle
-                cx="60"
-                cy="60"
-                r="51"
-                fill="none"
-                stroke="#ffffff12"
-                strokeWidth="6"
-              />
-              <circle
-                cx="60"
-                cy="60"
-                r="51"
-                fill="none"
-                stroke="#8bd736"
-                strokeWidth="6"
-                strokeLinecap="round"
-                strokeDasharray={`${average * 3.204} 320.4`}
-                transform="rotate(-90 60 60)"
-              />
-            </svg>
-            <div>
-              <strong>{average}</strong>
-              <span>из 100 баллов</span>
-            </div>
-          </div>
-          <div className="hero-score-bottom">
-            <span />
-            На основе {count} диалогов
-          </div>
-        </div>
-        <div className="hero-floating">
-          <CheckCheck size={15} /> Решения с доказательствами
-        </div>
-      </div>
-    </section>
   );
 }
 function Trend({ period, dialogs }) {
@@ -1839,7 +1636,7 @@ function CriterionForm({ criterion, onSave }) {
     </form>
   );
 }
-function AppealForm({ onSubmit }) {
+function AppealForm({ onSubmit, context }) {
   const [comment, setComment] = useState("");
   return (
     <form
@@ -1849,6 +1646,29 @@ function AppealForm({ onSubmit }) {
         if (comment.trim()) onSubmit(comment.trim());
       }}
     >
+      {context && (
+        <div className="appeal-context">
+          <span className="context-label">
+            {context.dialog.id} · Оспариваемый критерий
+          </span>
+          <strong>
+            {
+              (context.dialog.criteriaSnapshot || initialCriteria).find(
+                (c) => c.id === context.result.criterionId,
+              )?.title
+            }
+          </strong>
+          <span className="context-answer">
+            Исходный ответ: {context.result.answer}
+          </span>
+          <p>{context.result.reason}</p>
+          <blockquote>
+            {context.dialog.messages.find(
+              (m) => m.id === context.result.evidenceId,
+            )?.text || "Подтверждающая реплика не указана"}
+          </blockquote>
+        </div>
+      )}
       <p className="muted">
         Расскажите, с чем вы не согласны. Проверяющий увидит исходную оценку и
         ваше объяснение.
@@ -1869,7 +1689,7 @@ function AppealForm({ onSubmit }) {
     </form>
   );
 }
-function DecisionForm({ appeal, onSave, onOpenDialog }) {
+function DecisionForm({ appeal, onSave, onOpenDialog, dialog }) {
   const c =
       appeal.criterion ||
       initialCriteria.find((c) => c.id === appeal.criterionId),
@@ -1894,6 +1714,27 @@ function DecisionForm({ appeal, onSave, onOpenDialog }) {
             Посмотреть транскрипт и доказательства <ArrowUpRight size={14} />
           </button>
         </div>
+      </div>
+      <div className="appeal-context">
+        <span className="context-label">Основание исходной оценки</span>
+        <p>
+          {appeal.originalReason ||
+            dialog?.results?.find((r) => r.criterionId === appeal.criterionId)
+              ?.reason ||
+            "Не указано"}
+        </p>
+        <blockquote>
+          {appeal.evidenceText ||
+            dialog?.messages?.find(
+              (m) =>
+                m.id ===
+                (appeal.evidenceId ||
+                  dialog?.results?.find(
+                    (r) => r.criterionId === appeal.criterionId,
+                  )?.evidenceId),
+            )?.text ||
+            "Реплика не указана"}
+        </blockquote>
       </div>
       <label>
         Ответ после проверки
@@ -2057,5 +1898,63 @@ function ImportForm({ existing, onImport }) {
         Импортировать
       </Button>
     </div>
+  );
+}
+
+function Methodology() {
+  return (
+    <section className="panel methodology">
+      <div className="section-intro">
+        <h2>Как рассчитывается оценка</h2>
+        <p>
+          Каждый вывод связан с конкретным критерием и фрагментом разговора.
+        </p>
+      </div>
+      <div className="methodology-steps">
+        {[
+          {
+            n: "01",
+            title: "Контекст разговора",
+            text: "Учитываются запрос клиента, действия оператора и системные события. Сообщения бота служат контекстом.",
+          },
+          {
+            n: "02",
+            title: "Версия чек-листа",
+            text: "Оценка связана с неизменяемой версией правил. Новый критерий применяется при новом запуске оценки.",
+          },
+          {
+            n: "03",
+            title: "Доказательства",
+            text: "Для ответа указывается реплика. При пропуске действия — проверенный участок; при N/A — причина неприменимости.",
+          },
+          {
+            n: "04",
+            title: "Расчёт и пересмотр",
+            text: "Баллы рассчитываются программно. После решения по апелляции итог пересчитывается, исходный результат сохраняется.",
+          },
+        ].map((x) => (
+          <div key={x.n}>
+            <span>{x.n}</span>
+            <div>
+              <h3>{x.title}</h3>
+              <p>{x.text}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="methodology-note">
+        <strong>Правила расчёта</strong>
+        <p>
+          Итог = 100 × сумма (вес × доля оценки) / сумма применимых весов. N/A
+          исключается из расчёта. Грубая ошибка отмечается отдельно и не
+          обнуляет балл автоматически.
+        </p>
+        <code>Числовая оценка / максимум шкалы × вес критерия</code>
+      </div>
+      <p className="methodology-disclaimer">
+        В прототипе используются демонстрационные оценки. Импортированные
+        диалоги ожидают подключения серверного сервиса оценивания.
+      </p>
+    </section>
   );
 }

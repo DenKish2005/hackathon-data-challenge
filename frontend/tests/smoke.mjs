@@ -53,10 +53,8 @@ try {
   await page.emulateMedia({ reducedMotion: "reduce" });
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:5173");
-  await page
-    .getByRole("heading", { name: "Выберите диалог", exact: true })
-    .waitFor();
-  assert.equal(await page.locator(".single-analytics").count(), 0);
+  await page.getByRole("heading", { name: "Диалоги", exact: true }).waitFor();
+  assert.equal(await page.locator(".rw-workspace").count(), 0);
   await page
     .getByRole("navigation")
     .getByRole("button", { name: "Общая статистика", exact: true })
@@ -82,13 +80,33 @@ try {
   for (const row of await page.locator("tbody tr").all())
     assert.match(await row.innerText(), /KZ/);
   await page.getByLabel("Язык", { exact: true }).selectOption("Все языки");
+  await page.getByLabel("Сортировка").selectOption("low");
+  const sortedScores = await page
+    .locator("tbody tr .score")
+    .evaluateAll((nodes) =>
+      nodes.map((n) => Number(n.childNodes[0].textContent)),
+    );
+  assert.deepEqual(
+    sortedScores,
+    [...sortedScores].sort((a, b) => a - b),
+  );
+  await page
+    .getByRole("group", { name: "Очередь диалогов" })
+    .getByRole("button", { name: /Грубые ошибки/ })
+    .click();
+  assert.equal(await page.locator("tbody tr").count(), 1);
+  assert.equal(await page.locator("tbody .critical-indicator").count(), 1);
+  await page
+    .getByRole("group", { name: "Очередь диалогов" })
+    .getByRole("button", { name: /Все диалоги/ })
+    .click();
+  await page.getByLabel("Сортировка").selectOption("recent");
+
   await page.getByLabel("Поиск диалогов").fill(base.id);
   await page.locator("tbody .dialog-button").first().click();
   await page.getByRole("heading", { name: "Транскрипт" }).waitFor();
-  await page
-    .getByRole("heading", { name: "Аналитика диалога", exact: true })
-    .waitFor();
-  assert.equal(await page.locator(".single-analytics").count(), 1);
+  await page.getByRole("heading", { name: base.topic, exact: true }).waitFor();
+  assert.equal(await page.locator(".rw-workspace").count(), 1);
   assert.ok(page.url().endsWith("#dialog/" + base.id));
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: "Отчёт", exact: true }).click();
@@ -104,15 +122,27 @@ try {
   await page.getByLabel("Выбрать другой диалог").selectOption(other.id);
   assert.ok(page.url().endsWith("#dialog/" + other.id));
   assert.match(
-    await page.locator(".sa-score-ring").getAttribute("aria-label"),
+    await page.locator(".rw-overall-score").getAttribute("aria-label"),
     new RegExp(String(other.score).replace(".", ",")),
   );
   await page.getByLabel("Выбрать другой диалог").selectOption(base.id);
   await page.reload();
-  await page
-    .getByRole("heading", { name: "Аналитика диалога", exact: true })
-    .waitFor();
+  await page.getByRole("heading", { name: base.topic, exact: true }).waitFor();
   assert.ok(page.url().endsWith("#dialog/" + base.id));
+  await page
+    .getByRole("group", { name: "Фильтр критериев" })
+    .getByRole("button", { name: /Замечания/ })
+    .click();
+  assert.equal(await page.locator(".rw-criterion").count(), 2);
+  await page
+    .getByRole("group", { name: "Фильтр критериев" })
+    .getByRole("button", { name: /Все/ })
+    .click();
+  const contact = page
+    .locator(".rw-criterion-toggle")
+    .filter({ hasText: "Установление контакта" });
+  if ((await contact.getAttribute("aria-expanded")) !== "true")
+    await contact.click();
   await page
     .getByRole("button", {
       name: "Реплика #" + base.results[0].evidenceId,
@@ -126,6 +156,11 @@ try {
     .getByRole("button", { name: "Оспорить", exact: true })
     .first()
     .click();
+  await page.locator(".appeal-context").waitFor();
+  assert.match(
+    await page.locator(".appeal-context").innerText(),
+    /Установление контакта/,
+  );
   await page
     .getByLabel("Причина апелляции")
     .fill("Прошу проверить приветствие по первой реплике оператора.");
@@ -207,14 +242,14 @@ try {
   await page.locator("tbody .dialog-button").first().click();
   await page.getByRole("heading", { name: "Ожидает оценки" }).first().waitFor();
   assert.equal(
-    await page.locator(".sa-score-ring").getAttribute("aria-label"),
+    await page.locator(".rw-overall-score").getAttribute("aria-label"),
     "Итоговый балл ещё не рассчитан",
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Открыть меню" }).click();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "Общая статистика", exact: true })
+    .getByRole("button", { name: "Диалоги" })
     .click();
   assert.equal(
     await page.evaluate(
@@ -222,17 +257,55 @@ try {
     ),
     false,
   );
-  await page.waitForFunction(
-    () => document.querySelector(".sidebar").getBoundingClientRect().right <= 0,
+  const criticalTab = page
+    .getByRole("group", { name: "Очередь диалогов" })
+    .getByRole("button", { name: /Грубые ошибки/ });
+  const tabBox = await criticalTab.boundingBox();
+  assert.ok(tabBox.x >= 0 && tabBox.x + tabBox.width <= 390);
+  const mobileCard = page.getByRole("button", {
+    name: `Открыть диалог ${base.id}: ${base.topic}`,
+  });
+  assert.ok(await mobileCard.isVisible());
+  const box = await mobileCard.boundingBox();
+  assert.ok(box.x >= 0 && box.x + box.width <= 390);
+  await mobileCard.click();
+  await page.getByRole("tab", { name: /Оценка/ }).click();
+  const consultation = page
+    .locator(".rw-criterion-toggle")
+    .filter({ hasText: "Корректная и полная консультация" });
+  if ((await consultation.getAttribute("aria-expanded")) !== "true")
+    await consultation.click();
+  const evidenceButton = page.getByRole("button", {
+    name: "Реплика #m7",
+    exact: true,
+  });
+  await evidenceButton.click();
+  assert.equal(
+    await page
+      .getByRole("tab", { name: /Переписка/ })
+      .getAttribute("aria-selected"),
+    "true",
   );
-  await page.screenshot({ path: "/tmp/freedom-mobile.png", fullPage: true });
+  assert.ok(await page.locator(".message.highlighted").isVisible());
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    ),
+    false,
+  );
+  await page.getByLabel("Поиск по переписке").fill("заявка");
+  assert.ok((await page.locator(".rw-message mark").count()) > 0);
+  await page.screenshot({
+    path: "/tmp/freedom-dark-mobile.png",
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 1440, height: 1050 });
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.screenshot({ path: "/tmp/freedom-desktop.png", fullPage: true });
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: scoring, filtering, evidence links, appeal resolution, checklist editing and persistence, import, modal Escape, mobile navigation and layout.",
+    "PASS: scoring, sorting, queue filters, selected report, criterion filters, linked evidence, contextual appeal and recalculation, versioned checklist, import, keyboard modal, mobile queue and review tabs.",
   );
 } finally {
   await browser.close();
