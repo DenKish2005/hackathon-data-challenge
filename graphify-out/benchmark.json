@@ -1,0 +1,31 @@
+{
+  "corpus_tokens": 74194,
+  "corpus_words": 55646,
+  "nodes": 1293,
+  "edges": 3219,
+  "avg_query_tokens": 1635,
+  "reduction_ratio": 45.4,
+  "per_question": [
+    {
+      "question": "what is the main entry point",
+      "query_tokens": 1634,
+      "reduction": 45.4
+    },
+    {
+      "question": "how are errors handled",
+      "query_tokens": 1634,
+      "reduction": 45.4
+    },
+    {
+      "question": "what connects the data layer to the api",
+      "query_tokens": 1642,
+      "reduction": 45.2
+    },
+    {
+      "question": "what are the core abstractions",
+      "query_tokens": 1631,
+      "reduction": 45.5
+    }
+  ],
+  "measurement_note": "Estimated retrieval context for matched synthetic questions using actual detected-corpus word count. Not measured LLM billing or answer quality; CLI default estimates corpus as nodes*50 words."
+}
