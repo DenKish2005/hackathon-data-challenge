@@ -131,3 +131,23 @@ class ChecklistView(Schema):
     criteria: list[Criterion]
     sections: list[dict]
     created_at: str
+
+
+class EvaluationCreate(Schema):
+    conversation_id: str = Field(min_length=1, max_length=200)
+    checklist_id: str = Field(min_length=1, max_length=100)
+    checklist_version: int = Field(ge=1)
+    retry_failed: bool = False
+
+
+class JobView(Schema):
+    job_id: str
+    conversation_id: str
+    checklist_id: str
+    checklist_version: int
+    status: Literal["pending", "running", "completed", "failed"]
+    error_message: str | None
+    attempts: int
+    evaluation_id: str | None
+    created_at: str
+    updated_at: str

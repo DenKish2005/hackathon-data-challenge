@@ -4,20 +4,11 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from cqa.backend.database import Database
 from cqa.backend.models import Checklist, Conversation, Message
 from cqa.backend.schemas import ChecklistCreate, DatasetEnvelope
 from cqa.backend.services.checklist_service import create_checklist
 from cqa.backend.services.dataset_importer import Conflict, import_dataset
 from cqa.workspace import default_checklist
-
-
-@pytest.fixture
-def database(tmp_path):
-    db = Database(f"sqlite:///{tmp_path / 'foundation.db'}")
-    db.initialize()
-    yield db
-    db.engine.dispose()
 
 
 def dataset_payload():

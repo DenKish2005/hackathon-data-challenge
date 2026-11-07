@@ -65,6 +65,7 @@ class EvaluationJob(Base):
     checklist_id: Mapped[str]
     checklist_version: Mapped[int]
     status: Mapped[str] = mapped_column(default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(default=0)
     error_message: Mapped[str | None]
     created_at: Mapped[str] = mapped_column(default=now)
     updated_at: Mapped[str] = mapped_column(default=now)
@@ -82,6 +83,7 @@ class Evaluation(Base):
     prompt_version: Mapped[str]
     result_json: Mapped[dict] = mapped_column(JSON)
     is_mock: Mapped[bool] = mapped_column(Boolean)
+    review_revision: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[str] = mapped_column(default=now)
 
 
