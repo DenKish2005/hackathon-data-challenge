@@ -7,7 +7,14 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from cqa.backend.models import Checklist, Conversation, Evaluation, EvaluationJob, Message
+from cqa.backend.models import (
+    Checklist,
+    Conversation,
+    Evaluation,
+    EvaluationJob,
+    JobMetrics,
+    Message,
+)
 from cqa.backend.schemas import ChecklistView, ConversationDetail, MessageView
 from cqa.service import RULES
 
@@ -99,4 +106,13 @@ def job_view(session, job):
             "created_at",
             "updated_at",
         )
-    } | {"evaluation_id": evaluation_id}
+    } | {
+        "evaluation_id": evaluation_id,
+        "metrics": list(
+            session.scalars(
+                select(JobMetrics.metrics)
+                .where(JobMetrics.job_id == job.job_id)
+                .order_by(JobMetrics.created_at)
+            )
+        ),
+    }

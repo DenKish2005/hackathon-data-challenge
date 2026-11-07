@@ -4,7 +4,7 @@ from cqa.infra.llm.base import HTTPProvider, ProviderError
 
 
 class OpenAICompatibleProvider(HTTPProvider):
-    async def generate(self, messages, schema):
+    async def _generate(self, messages, schema):
         self.check_context(messages, schema)
         started = perf_counter()
         data = await self.post(
@@ -32,4 +32,6 @@ class OpenAICompatibleProvider(HTTPProvider):
                 started,
             )
         except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ProviderError("Provider returned invalid or incomplete output") from exc
+            raise ProviderError(
+                "Provider returned invalid or incomplete output", "invalid_output"
+            ) from exc

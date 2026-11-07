@@ -87,6 +87,16 @@ class Evaluation(Base):
     created_at: Mapped[str] = mapped_column(default=now)
 
 
+class JobMetrics(Base):
+    """Payload-free attempt telemetry, including failed and interrupted jobs."""
+
+    __tablename__ = "cqa_job_metrics"
+    run_id: Mapped[str] = mapped_column(primary_key=True, default=identifier)
+    job_id: Mapped[str] = mapped_column(ForeignKey(EvaluationJob.job_id), index=True)
+    created_at: Mapped[str] = mapped_column(default=now)
+    metrics: Mapped[dict] = mapped_column(JSON)
+
+
 class Appeal(Base):
     __tablename__ = "cqa_appeals"
     appeal_id: Mapped[str] = mapped_column(primary_key=True, default=identifier)

@@ -152,3 +152,4 @@ class JobView(Schema):
     evaluation_id: str | None
     created_at: str
     updated_at: str
+    metrics: list[dict] = Field(default_factory=list)
