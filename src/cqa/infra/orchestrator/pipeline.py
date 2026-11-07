@@ -1,12 +1,14 @@
 """AI integration boundary. No competing scoring formula lives here."""
 
+import hashlib
+import inspect
 import json
 from typing import Protocol
 
 from pydantic import Field, StrictFloat, StrictStr
 
 from cqa.backend.schemas import ChecklistView, ConversationDetail, Schema
-from cqa.service import RULES, score
+from cqa.service import RULES, Analysis, EvaluationRequest, score, validate_analysis
 
 
 class Finding(Schema):
@@ -39,11 +41,27 @@ class Evaluator(Protocol):
 
 
 class Scorer(Protocol):
+    def configuration(self) -> dict: ...
+
     def score(self, checklist: ChecklistView, result: EvaluationResult) -> dict: ...
+
+
+class Critic(Protocol):
+    def configuration(self) -> dict: ...
+
+    async def review(
+        self, conversation: ConversationDetail, checklist: ChecklistView, result: EvaluationResult
+    ) -> EvaluationResult: ...
 
 
 class ExistingScoringAdapter:
     """Delegate to the team's existing deterministic engine in cqa.service."""
+
+    def configuration(self):
+        return {
+            "name": "cqa.service.score",
+            "implementation": hashlib.sha256(inspect.getsource(score).encode()).hexdigest(),
+        }
 
     def score(self, checklist, result):
         from types import SimpleNamespace
@@ -115,29 +133,72 @@ class ProviderEvaluator:
         self.is_mock = provider.is_mock
 
     def configuration(self):
-        return {"evaluator": self.name, **self.provider.configuration()}
+        return {
+            "evaluator": self.name,
+            "adapter_version": 1,
+            "schema": Analysis.model_json_schema(),
+            **self.provider.configuration(),
+        }
 
     async def evaluate_conversation(self, conversation, checklist):
-        schema = EvaluationResult.model_json_schema()
+        # Reuse the AI owner's established prompt, output schema and quote validation.
+        request = EvaluationRequest(
+            conversation_id=conversation.conversation_id,
+            language=conversation.language,
+            version=checklist.version,
+            criteria=checklist.criteria,
+            messages=[
+                {
+                    "id": m.message_id,
+                    "role": m.speaker,
+                    "text": m.text,
+                    "time": m.timestamp_original,
+                }
+                for m in conversation.messages
+            ],
+        )
+        schema = Analysis.model_json_schema()
         messages = [
             {
                 "role": "system",
-                "content": RULES + "\nReturn the following JSON schema (snake_case fields). "
-                "For absent actions use checked_message_ids; N/A also requires na_reason. "
-                "Do not invent message references.\n" + json.dumps(schema, ensure_ascii=False),
+                "content": RULES
+                + "\nReturn JSON using this schema:\n"
+                + json.dumps(schema, ensure_ascii=False),
             },
             {
                 "role": "user",
                 "content": json.dumps(
                     {
-                        "conversation": conversation.model_dump(mode="json"),
-                        "checklist": checklist.model_dump(mode="json"),
+                        **request.model_dump(mode="json", exclude={"force"}),
+                        "channel": conversation.channel,
+                        "checklist_id": checklist.checklist_id,
+                        "sections": checklist.sections,
                     },
                     ensure_ascii=False,
                 ),
             },
         ]
-        return EvaluationResult.model_validate(await self.provider.generate(messages, schema))
+        analysis = validate_analysis(
+            request, Analysis.model_validate(await self.provider.generate(messages, schema))
+        )
+        return EvaluationResult(
+            is_mock=self.is_mock,
+            findings=[
+                Finding(
+                    criterion_id=f.criterionId,
+                    answer=f.answer,
+                    explanation=f.reason,
+                    message_ids=[f.evidenceId],
+                    checked_message_ids=f.checkedMessageIds,
+                    na_reason=f.reason if f.answer == "N/A" else None,
+                )
+                for f in analysis.results
+            ],
+            metadata={
+                "summary": analysis.summary,
+                "quotes": {f.criterionId: f.quote for f in analysis.results},
+            },
+        )
 
 
 class Pipeline:
@@ -166,7 +227,7 @@ class Pipeline:
                 )
             },
             "categories": self.categories,
-            "scorer": type(self.scorer).__qualname__,
+            "scorer": self.scorer.configuration(),
         }
 
     async def run(self, conversation, checklist):

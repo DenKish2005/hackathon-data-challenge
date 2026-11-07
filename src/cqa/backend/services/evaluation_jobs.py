@@ -32,21 +32,25 @@ def inputs(session, conversation_id, checklist_id, version):
     return detail, ChecklistView.model_validate(checklist)
 
 
+def job_key(conversation, checklist, pipeline, settings):
+    content = {
+        "conversation": conversation.model_dump(mode="json"),
+        "checklist": checklist.model_dump(mode="json"),
+        "pipeline": pipeline.configuration(),
+        "prompt_version": settings.prompt_version,
+        "rules": RULES,
+    }
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
 def create_job(db, pipeline, settings, request):
     with db.sessions() as session:
         conversation, checklist = inputs(
             session, request.conversation_id, request.checklist_id, request.checklist_version
         )
-        content = {
-            "conversation": conversation.model_dump(mode="json"),
-            "checklist": checklist.model_dump(mode="json"),
-            "pipeline": pipeline.configuration(),
-            "prompt_version": settings.prompt_version,
-            "rules": RULES,
-        }
-        key = hashlib.sha256(
-            json.dumps(content, sort_keys=True, ensure_ascii=False).encode()
-        ).hexdigest()
+        key = job_key(conversation, checklist, pipeline, settings)
         existing = session.scalar(select(EvaluationJob).where(EvaluationJob.cache_key == key))
         if existing:
             if request.retry_failed and existing.status == "failed":

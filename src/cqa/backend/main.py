@@ -101,6 +101,7 @@ class ReviewView(Schema):
     review_id: str
     appeal_id: str
     evaluation_id: str
+    revision: int
     original_result: dict
     final_result: dict
     decision: str
@@ -314,7 +315,7 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
             return session.scalars(
                 select(ReviewHistory)
                 .where(ReviewHistory.evaluation_id == evaluation_id)
-                .order_by(ReviewHistory.created_at)
+                .order_by(ReviewHistory.revision)
             ).all()
 
     return app

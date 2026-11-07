@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from cqa.backend.models import Evaluation, EvaluationJob, now
-from cqa.backend.services.evaluation_jobs import inputs
+from cqa.backend.services.evaluation_jobs import inputs, job_key
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,10 @@ class Worker:
                 conversation, checklist = inputs(
                     session, job.conversation_id, job.checklist_id, job.checklist_version
                 )
+                if job.cache_key != job_key(conversation, checklist, self.pipeline, self.settings):
+                    raise ValueError(
+                        "Pipeline configuration changed; resubmit with current configuration"
+                    )
             async with asyncio.timeout(self.settings.timeout):
                 result = await self.pipeline.run(conversation, checklist)
             with self.db.sessions.begin() as session:
