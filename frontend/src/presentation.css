@@ -1184,3 +1184,27 @@ main {
 .skip-link {
   color: #fff;
 }
+/* Review fixes: long conversations, keyboard focus and action contrast. */
+.ca-message-timeline {
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.ca-timeline-message {
+  flex: 1 0 80px;
+}
+.ca-evidence-button {
+  background: #337e35;
+  border-color: #337e35;
+}
+.ca-evidence-button:hover {
+  background: #28672b;
+}
+.ca-transcript-search:focus-within {
+  outline: 2px solid #448e3d;
+  outline-offset: 2px;
+}
+.ca-quality-footer,
+.ca-transcript-footer {
+  color: #687260;
+}

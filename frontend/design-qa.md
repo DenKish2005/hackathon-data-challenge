@@ -21,9 +21,15 @@ This is a desktop interpretation of the supplied photographs, not a pixel clone 
 
 ## Browser checks
 
-Chromium: 1440×1000 and 1280×900 desktop viewports. No horizontal page overflow or JavaScript errors in the smoke flow. Build, desktop smoke and mocked frontend/backend evaluation contract pass. The contract verifies a visible503 failure followed by a successful response, the transcript, eight current criteria and cache flag sent to the backend. This does not establish real-model accuracy.
+Chromium: 1440×1000 and 1280×900 desktop viewports. No horizontal page overflow or JavaScript errors in the smoke flow. Build, desktop smoke and mocked frontend/backend evaluation contract pass. The contract verifies a visible503 failure followed by a successful response, the transcript, eight current criteria and cache flag sent to the backend. Additional regressions cover a100-message transcript and outdated appeals after a new evaluation. This does not establish real-model accuracy.
 
 No mobile iteration was requested. Static GitHub Pages serves the UI; a separately running API is needed for model evaluation and shared persistence.
+
+## Agent review and fixes
+
+The site, API, test and independent critic roles follow `docs/CQA_ARCHITECTURE.md`. Review found and fixed: long timelines overflowing the page, insufficient primary-action contrast, a missing transcript-search focus indicator, criterion answers omitted from accessible descriptions, stale active criteria after new rule IDs, old appeals applying to newer evaluations, old pre-review scores surviving reevaluation, and history404 for conversation IDs containing slashes.
+
+A new evaluation identity scopes appeals, and an outdated appeal has a visible explanation and disabled save action. The handler independently checks that identity. The API route preserves full conversation IDs and has a regression test. All37 Python CQA tests pass; these do not call a live model.
 
 ## Screenshots
 

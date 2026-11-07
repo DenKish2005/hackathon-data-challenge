@@ -58,6 +58,7 @@ Scoring normalizes numeric scales, excludes allowed N/A weights, rounds the fina
 npm run build
 # Start npm run dev in another terminal first:
 npm run test:smoke
+BASE_URL=http://127.0.0.1:5173 node tests/evaluation.mjs
 ```
 
 The smoke test uses installed Chromium at `/usr/bin/chromium`. Set `CHROMIUM_PATH` and `BASE_URL` for other environments. It checks scoring, search/filters, evidence navigation, appeal review, checklist persistence, JSON import, modal keyboard dismissal and desktop overflow.

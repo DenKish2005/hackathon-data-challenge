@@ -192,13 +192,14 @@ try {
             conversation_id: "import-smoke",
             channel: "agent chat",
             language: "RU",
-            transcript: [
-              {
-                timestamp: "00:01",
-                speaker: "client",
-                text: "Здравствуйте!",
-              },
-            ],
+            transcript: Array.from({ length: 100 }, (_, index) => ({
+              timestamp: `${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}`,
+              speaker: index % 2 ? "operator" : "client",
+              text:
+                index % 2
+                  ? `Проверяю заявку и уточняю детали. Ответ ${index + 1}.`
+                  : `Подскажите статус заявки на вывод средств. Вопрос ${index + 1}.`,
+            })),
             audio_url: null,
           },
         ],
@@ -220,6 +221,22 @@ try {
     await page.locator(".ca-score-ring").getAttribute("aria-label"),
     "Итоговый балл ещё не рассчитан",
   );
+  assert.equal(await page.locator(".ca-timeline-message").count(), 100);
+  assert.equal(await page.locator(".ca-message").count(), 100);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    ),
+    false,
+    "A 100-message timeline must scroll inside its panel at desktop width",
+  );
+  await page.locator(".ca-timeline-message").last().click();
+  assert.match(
+    await page.locator(".ca-message.highlighted").innerText(),
+    /Ответ 100/,
+  );
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await page.reload();
   await page
     .getByRole("heading", { name: "Анализ разговора", exact: true })
@@ -245,7 +262,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: desktop sketch layout, selection gate, search/filtering, true statistics, versioned criteria, per-dialogue review/evidence/report, contextual appeal and recalculation, pending import, deep links and Escape.",
+    "PASS: desktop sketch layout, selection gate, search/filtering, true statistics, versioned criteria, per-dialogue review/evidence/report, contextual appeal and recalculation, 100-message pending import and timeline containment, deep links and Escape.",
   );
 } finally {
   await browser.close();

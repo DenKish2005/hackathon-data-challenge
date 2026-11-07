@@ -91,9 +91,11 @@ export default function ConversationAnalysis({
   const [highlighted, setHighlighted] = useState(null);
   const [query, setQuery] = useState("");
   const transcript = useRef(null);
-  const active = rows.find(
-    ({ rule }) => String(rule.id) === String(activeRule),
-  );
+  const active =
+    rows.find(({ rule }) => String(rule.id) === String(activeRule)) ||
+    rows.find(({ rule, result }) => hasIssue(rule, result)) ||
+    rows[0];
+  const activeRuleId = active?.rule.id;
   const evidence = messages.find(
     (message) => message.id === active?.result?.evidenceId,
   );
@@ -131,6 +133,15 @@ export default function ConversationAnalysis({
     setQuery("");
     if (transcript.current) transcript.current.scrollTop = 0;
   }, [dialog.id]);
+
+  useEffect(() => {
+    if (
+      activeRuleId !== undefined &&
+      String(activeRuleId) !== String(activeRule)
+    ) {
+      setActiveRule(activeRuleId);
+    }
+  }, [activeRule, activeRuleId]);
 
   function showMessage(id) {
     if (!messages.some((message) => message.id === id)) return;
@@ -385,9 +396,10 @@ export default function ConversationAnalysis({
                     return (
                       <button
                         key={rule.id}
-                        className={`ca-criterion-row ${String(activeRule) === String(rule.id) ? "is-selected" : ""} ${issue ? "has-issue" : ""} ${na ? "is-na" : ""}`}
+                        className={`ca-criterion-row ${String(activeRuleId) === String(rule.id) ? "is-selected" : ""} ${issue ? "has-issue" : ""} ${na ? "is-na" : ""}`}
                         aria-label={`Критерий: ${rule.title}`}
-                        aria-pressed={String(activeRule) === String(rule.id)}
+                        aria-describedby={`ca-answer-${rule.id}`}
+                        aria-pressed={String(activeRuleId) === String(rule.id)}
                         onClick={() => setActiveRule(rule.id)}
                       >
                         <span className="ca-result-symbol">
@@ -403,7 +415,7 @@ export default function ConversationAnalysis({
                         <small>
                           {rule.type === "flag" ? "Флаг" : `Вес ${rule.weight}`}
                         </small>
-                        <strong>{answer}</strong>
+                        <strong id={`ca-answer-${rule.id}`}>{answer}</strong>
                         <ChevronRight size={13} />
                       </button>
                     );

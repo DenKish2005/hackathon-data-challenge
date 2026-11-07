@@ -15,12 +15,14 @@ dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "httpx>=0.28,<1", "ruff>=0.11
 
 [project.scripts]
 tokenops-demo = "tokenops_guard.demo:main"
+cqa = "cqa.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 tokenops_guard = ["ledger/scripts/*.lua"]
+cqa = ["checklist.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -65,6 +65,31 @@ const names = {
   criteria: "Критерии оценки",
   agents: "Методика",
 };
+function evaluationIdentity(dialog) {
+  if (!dialog) return null;
+  return (
+    dialog.evaluationId ||
+    JSON.stringify({
+      version: dialog.checklistVersion || 1,
+      criteria: dialog.criteriaSnapshot || initialCriteria,
+      results: dialog.originalResults || dialog.results || [],
+    })
+  );
+}
+function appealMatchesEvaluation(appeal, dialog) {
+  if (!dialog) return false;
+  if (appeal.evaluationKey)
+    return appeal.evaluationKey === evaluationIdentity(dialog);
+  // Legacy demo appeals have no run identifier. Never attach them to a new AI run.
+  if (dialog.evaluationId) return false;
+  const original = (dialog.originalResults || dialog.results || []).find(
+    (r) => String(r.criterionId) === String(appeal.criterionId),
+  );
+  return (
+    original?.answer === appeal.originalAnswer &&
+    (!appeal.originalReason || original.reason === appeal.originalReason)
+  );
+}
 function stored(k, f) {
   try {
     const value = localStorage.getItem(k);
@@ -212,6 +237,7 @@ export default function App() {
       status: "done",
       source: "ollama",
       originalResults: result.results,
+      originalScore: undefined,
     });
     setDialogs((old) => old.map((d) => (d.id === id ? update(d) : d)));
     setSelected((old) => (old?.id === id ? update(old) : old));
@@ -1295,6 +1321,9 @@ export default function App() {
                     id: crypto.randomUUID(),
                     dialogId: modal.dialog.id,
                     criterionId: modal.result.criterionId,
+                    evaluationKey: evaluationIdentity(modal.dialog),
+                    evaluationId: modal.dialog.evaluationId || null,
+                    checklistVersion: modal.dialog.checklistVersion || 1,
                     title:
                       (modal.dialog.criteriaSnapshot || initialCriteria).find(
                         (c) => c.id === modal.result.criterionId,
@@ -1332,6 +1361,17 @@ export default function App() {
               }}
               onSave={(answer, reason) => {
                 const a = modal.appeal;
+                if (
+                  !appealMatchesEvaluation(
+                    a,
+                    dialogs.find((d) => d.id === a.dialogId),
+                  )
+                ) {
+                  setToast(
+                    "Диалог переоценён. Создайте апелляцию к актуальному результату.",
+                  );
+                  return;
+                }
                 setDialogs((old) =>
                   old.map((d) => {
                     if (d.id !== a.dialogId) return d;
@@ -1758,6 +1798,7 @@ function DecisionForm({ appeal, onSave, onOpenDialog, dialog }) {
       appeal.criterion ||
       initialCriteria.find((c) => c.id === appeal.criterionId),
     values = c?.type === "scale" ? c.scale : ["Да", "Нет"];
+  const stale = !appealMatchesEvaluation(appeal, dialog);
   const [answer, setAnswer] = useState(appeal.originalAnswer),
     [reason, setReason] = useState("");
   return (
@@ -1779,6 +1820,13 @@ function DecisionForm({ appeal, onSave, onOpenDialog, dialog }) {
           </button>
         </div>
       </div>
+      {stale && (
+        <p className="form-error" role="alert">
+          Диалог переоценён после этой апелляции. Решение к старому запуску не
+          изменит новую оценку. Откройте диалог и создайте апелляцию к
+          актуальному результату.
+        </p>
+      )}
       <div className="appeal-context">
         <span className="context-label">Основание исходной оценки</span>
         <p>
@@ -1828,7 +1876,7 @@ function DecisionForm({ appeal, onSave, onOpenDialog, dialog }) {
           onChange={(e) => setReason(e.target.value)}
         />
       </label>
-      <Button primary type="submit">
+      <Button primary type="submit" disabled={stale}>
         <CheckCheck size={16} />
         Сохранить и пересчитать
       </Button>
