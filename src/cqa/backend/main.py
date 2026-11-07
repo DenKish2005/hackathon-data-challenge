@@ -197,6 +197,14 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
         )
         return import_dataset(db, envelope)
 
+    @app.get("/api/ready")
+    async def ready():
+        state = await health()
+        return JSONResponse(
+            status_code=200 if state.status in ("ready", "mock", "configured") else 503,
+            content=state.model_dump(),
+        )
+
     @app.get("/api/conversations", response_model=list[ConversationView])
     def conversations(
         group_id: str | None = None,
