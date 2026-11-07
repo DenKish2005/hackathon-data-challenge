@@ -25,7 +25,7 @@ class Settings:
         default_factory=lambda: {
             key: value
             for key, value in {
-                "DEV": os.getenv("FREEDOM_DEV_API_URL", ""),
+                "DEV": os.getenv("FREEDOM_DEV_API_URL") or os.getenv("CQA_DATA_URL", ""),
                 "CONTROL": os.getenv("FREEDOM_CONTROL_API_URL", ""),
             }.items()
             if value

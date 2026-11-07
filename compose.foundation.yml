@@ -7,7 +7,23 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: sqlite:////data/cqa-foundation.db
-      LLM_PROVIDER: mock
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      CQA_ALLOW_EXTERNAL_DATA: ${CQA_ALLOW_EXTERNAL_DATA:-false}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-1}
+      LLM_ATTEMPTS: ${LLM_ATTEMPTS:-3}
+      LLM_CONTEXT_SIZE: ${LLM_CONTEXT_SIZE:-65536}
+      LLM_OUTPUT_LIMIT: ${LLM_OUTPUT_LIMIT:-8000}
+      CQA_JOB_TIMEOUT: ${CQA_JOB_TIMEOUT:-120}
+      CQA_ENABLE_CRITIC: ${CQA_ENABLE_CRITIC:-true}
+      CQA_WORKERS: ${CQA_WORKERS:-2}
+      FREEDOM_DEV_API_URL: ${FREEDOM_DEV_API_URL:-}
+      FREEDOM_CONTROL_API_URL: ${FREEDOM_CONTROL_API_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - cqa-foundation:/data
     restart: unless-stopped
