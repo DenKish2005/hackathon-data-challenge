@@ -136,7 +136,7 @@ def test_schema_preserves_exact_cyrillic_answers_and_required_observations():
     assert item["properties"]["answer"]["enum"] == ["Да"]
     assert item["properties"]["evidenceId"]["enum"] == ["m1"]
     assert item["properties"]["checks"]["required"] == ["firstGreeting", "firstIntroduction"]
-    assert "checks" not in item["required"]
+    assert "checks" in item["required"]
     multi = analysis_schema(request())["properties"]["results"]
     assert [
         v["anyOf"][0]["properties"]["criterionId"]["enum"][0] for v in multi["prefixItems"]

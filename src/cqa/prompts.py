@@ -3,9 +3,9 @@
 import hashlib
 import json
 
-PROMPT_VERSION = "cqa-hardening-v2"
-SCHEMA_VERSION = "finding-v4-request-coverage"
-PIPELINE_VERSION = 5
+PROMPT_VERSION = "cqa-judge-v3"
+SCHEMA_VERSION = "finding-v5-applicability"
+PIPELINE_VERSION = 6
 
 RULES = """You audit HUMAN operator performance in RU/KZ/EN conversations. Explain in Russian.
 Credit only human operator actions. Bot/client/system messages provide context, not operator credit.
@@ -21,6 +21,14 @@ claims or incomplete/contradictory context in uncertaintyNotes and reviewRecomme
 Uncertainty is metadata: select an allowed answer and explain the limits. Never invent an answer.
 Separate useful next steps from promises of successful resolution. Without audio observations assess
 text only; never invent acoustic tone, pronunciation or pauses. Timing comes from the rubric.
+First populate the root applicability list for EVERY active criterion, before producing results.
+For each: criterionId, status (applicable/not_applicable/uncertain), a concise reason testing the
+ACTUAL naCondition, and messageIds supporting that decision or the inspected absence range.
+not_applicable is allowed ONLY when naAllowed=true AND the active N/A condition holds; its
+answer MUST be N/A. applicable and uncertain MUST NOT use N/A. Uncertain means the record cannot
+establish applicability: give an allowed provisional answer and request human review. Do not
+infer that a missing action makes its criterion inapplicable. Decide applicability independently
+of whether the operator performed well. Then assess only the applicable performance requirement.
 Return exactly one finding per criterion in active checklist order. For every criterion give a
 concise specific reason explaining applicability and observed behavior.
 Keep reason to one or two short sentences; quote only the shortest relevant exact source spans.
@@ -35,18 +43,24 @@ checkedMessageIds lists the inspected messages and includes every evidence refer
 use evidenceBasis=absence, evidenceId="", quote="", evidence=[], a specific reason and the checked
 range; only non-positive/NA answers may use absence. Never fabricate a quote for missing behavior.
 Keep legacy evidenceId/quote present. Use evidenceBasis=context for applicability evidence.
-checks is optional: use it for supplied boolean review observations, otherwise omit it or use {}.
+Complete the supplied reviewChecks before choosing an answer; use {} when there are no checks.
 The observations are not a substitute for source evidence. violationType is only for an
 applicable original severe-violation finding when its scoped guidance requests it; otherwise null.
 Keep confidence null: it is a legacy field, not a calibrated probability. Return JSON by schema.
 """
 
-CRITIC_RULES = """Роль Critic: review every finding against the ORIGINAL messages and ACTIVE rubric.
+CRITIC_RULES = """Роль Critic: review ONLY the supplied selected findings against ORIGINAL messages
+and ACTIVE definitions. Other validated findings are preserved by the application, not rewritten.
 Inspect applicability, all client requests, role attribution, quote relevance, contradictions and
 allowed steps. Do not inherit unrelated rules from old definitions. Recheck high-risk
 positive flags using direct operator evidence; do not confuse missing evidence with proof of an act.
 Correct justified errors, preserve supported findings, and flag material uncertainty for review.
-Return the full final JSON; do not compute a score. Apply the supplied criterion-specific guidance.
+Resolve the supplied concrete disputes. Independently test applicability before selecting an
+answer; do not copy a draft decision merely because its citation is exact. Return a complete
+replacement for each SELECTED criterion, including applicability, and no other criteria.
+If consultation is selected, correct the substantive-request inventory as needed. Acknowledgments
+and thanks without a new request are not unanswered questions. Do not compute a score.
+Apply the supplied criterion-specific guidance. Material uncertainty must remain visible.
 """
 
 # Frozen hashes of the shipped definitions (title, description, type, scale and N/A).
@@ -85,6 +99,10 @@ GUIDANCE = {
         "account number alone is not verification. If required but unconfirmed => NO. "
         "Do not infer outside verification. Giving general navigation for the client to inspect "
         "their own information is not itself operator disclosure of account facts. "
+        "Distinguish that from an operator asserting this customer's specific balance, "
+        "account restriction or transaction state: those are account facts, even when "
+        "no password or account number is quoted. Identify the actual protected act "
+        "and its message before deciding whether verification was required. "
         "A failure alone does not establish a severe act.",
         ["verificationRequired", "verifiedBeforeAction"],
     ),
@@ -92,7 +110,10 @@ GUIDANCE = {
         "Before scoring, populate the root requests inventory with EVERY substantive client "
         "question, including follow-ups. Link its client messageId and actual operatorMessageIds, "
         "and mark answered/partial/next_step/unanswered. Administrative bot-transfer requests "
-        "are not substantive questions. Do not omit a remaining question merely because the "
+        "are not substantive questions. Thanks, acknowledgments and satisfaction statements "
+        "without a new question/problem/action request MUST NOT become inventory items. "
+        "An answered item needs actual operator answer IDs. Do not omit a remaining question "
+        "merely because the "
         "client thanked the operator. Use concise observable findings, not a reasoning trace. "
         "Identify ALL substantive requests including follow-up questions. In reason, "
         "state which were answered and which remain unresolved. Evaluate relevance, "

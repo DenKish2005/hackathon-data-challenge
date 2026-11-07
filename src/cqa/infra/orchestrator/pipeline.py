@@ -20,11 +20,19 @@ from cqa.prompts import (
     RULES,
     SCHEMA_VERSION,
     build_messages,
-    critic_instruction,
     fingerprint,
-    wire_answer,
 )
-from cqa.service import Analysis, EvaluationRequest, analyze_phase, score
+from cqa.semantics import review_targets
+from cqa.service import (
+    Analysis,
+    EvaluationRequest,
+    analyze_phase,
+    require_consistent_semantics,
+    review_analysis,
+    score,
+    translate_analysis_ids,
+    validate_analysis,
+)
 
 
 class Finding(Schema):
@@ -152,7 +160,7 @@ class ProviderEvaluator:
         return {
             **self.provider.configuration(),
             "evaluator": self.name,
-            "adapter_version": 3,
+            "adapter_version": 5,
             "rules": RULES,
             "schema": Analysis.model_json_schema(),
             "prompt_version": PROMPT_VERSION,
@@ -191,21 +199,25 @@ class ProviderEvaluator:
         return request, messages
 
     async def analyze(self, conversation, checklist, previous=None):
-        request, messages = self.request_messages(conversation, checklist)
+        canonical, original_messages = self.request_messages(conversation, checklist)
+        aliases = {m.id: f"m{i + 1}" for i, m in enumerate(canonical.messages)}
+        sources = {alias: mid for mid, alias in aliases.items()}
+        request = canonical.model_copy(
+            update={
+                "messages": [m.model_copy(update={"id": aliases[m.id]}) for m in canonical.messages]
+            }
+        )
+        messages = build_messages(request)
+        payload = json.loads(messages[1]["content"])
+        original_payload = json.loads(original_messages[1]["content"])["evaluation"]
+        payload["evaluation"].update(
+            {key: original_payload[key] for key in ("channel", "checklist_id", "sections")}
+        )
+        messages[1]["content"] = json.dumps(payload, ensure_ascii=False)
         previous_analysis = None
         if previous is not None:
-            previous_analysis = Analysis.model_validate(previous.metadata["analysis"])
-            model_draft = previous_analysis.model_dump(exclude_defaults=True)
-            for finding in model_draft["results"]:
-                finding["answer"] = wire_answer(finding["answer"])
-            messages.extend(
-                [
-                    {
-                        "role": "assistant",
-                        "content": json.dumps(model_draft, ensure_ascii=False),
-                    },
-                    {"role": "user", "content": critic_instruction(request.criteria)},
-                ]
+            previous_analysis = translate_analysis_ids(
+                Analysis.model_validate(previous.metadata["analysis"]), aliases
             )
         provider_calls = []
 
@@ -228,14 +240,20 @@ class ProviderEvaluator:
             }
 
         phase_calls = []
-        analysis = await analyze_phase(
-            request,
-            messages,
-            phase_calls,
-            "critic" if previous else "evaluate",
-            generate,
-            previous_analysis,
+        analysis = (
+            await review_analysis(
+                request, previous_analysis, phase_calls, generate, prompt_messages=messages
+            )
+            if previous_analysis is not None
+            else await analyze_phase(request, messages, phase_calls, "evaluate", generate)
         )
+        # First validate against the actual local sources, then restore canonical IDs.
+        # Mapping is bijective; text, actor roles and quotation spans are never rewritten.
+        validate_analysis(request, analysis)
+        analysis = translate_analysis_ids(analysis, sources)
+        validate_analysis(canonical, analysis)
+        if previous_analysis is not None:
+            previous_analysis = translate_analysis_ids(previous_analysis, sources)
         calls = [
             *(previous.metadata.get("calls", []) if previous else []),
             *[
@@ -267,6 +285,13 @@ class ProviderEvaluator:
                 "summary": analysis.summary,
                 "quotes": {f.criterionId: f.quote for f in analysis.results},
                 "analysis": analysis.model_dump(mode="json"),
+                "semanticValidation": {
+                    "explicitApplicability": bool(analysis.applicability),
+                    "reviewTargets": review_targets(request, previous_analysis)
+                    if previous_analysis is not None
+                    else {},
+                    "expertAccuracyGuaranteed": False,
+                },
                 "calls": calls,
                 "promptVersion": PROMPT_VERSION,
                 "schemaVersion": SCHEMA_VERSION,
@@ -359,6 +384,12 @@ class Pipeline:
         if self.critic:
             result = validate_result(
                 await self.critic.review(conversation, checklist, result), conversation, checklist
+            )
+        if isinstance(self.evaluator, ProviderEvaluator) and "analysis" in result.metadata:
+            # Disabling Critic must not permit a contradictory result to be persisted.
+            request, _ = self.evaluator.request_messages(conversation, checklist)
+            require_consistent_semantics(
+                request, Analysis.model_validate(result.metadata["analysis"])
             )
         # The infrastructure is authoritative about whether mock mode was used.
         result.is_mock = self.evaluator.is_mock

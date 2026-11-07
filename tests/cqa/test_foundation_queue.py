@@ -196,7 +196,7 @@ async def test_provider_adapter_reuses_ai_contract_and_verifies_quotes(database)
             assert content["checklist_id"] == "official"
             assert content["messages"][1]["role"] == "bot"
             first = content["messages"][0]
-            assert first["id"] == conversation.messages[0].message_id
+            assert first["id"] == "m1"  # Compact IDs are private to the model prompt.
             return {
                 "summary": "Synthetic contract test",
                 "results": [
@@ -217,3 +217,6 @@ async def test_provider_adapter_reuses_ai_contract_and_verifies_quotes(database)
     result = await pipeline.run(conversation, checklist)
     assert result["is_mock"] is True
     assert result["metadata"]["quotes"]["1"] == conversation.messages[0].text
+    assert result["metadata"]["analysis"]["results"][0]["evidenceId"] == (
+        conversation.messages[0].message_id
+    )
