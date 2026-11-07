@@ -213,7 +213,12 @@ def test_failed_model_has_failed_job_and_no_fake_evaluation(tmp_path):
             workspace = import_one(client)
             response = client.post("/api/evaluate", json=evaluate_request(workspace))
             assert response.status_code == 502
-            assert response.json() == {"detail": "Evaluation failed"}
+            expected = (
+                "Result failed schema or evidence validation; no evaluation saved"
+                if failure == "quote"
+                else "LLM returned invalid or truncated output; no evaluation saved"
+            )
+            assert response.json() == {"detail": expected}
             with app.state.db.sessions() as session:
                 assert session.scalar(select(func.count()).select_from(Evaluation)) == 0
                 assert session.scalar(select(EvaluationJob)).status == "failed"
