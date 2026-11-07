@@ -35,6 +35,7 @@ from cqa.prompts import (
     rubric_guidance,
     wire_answer,
 )
+from cqa.semantics import review_targets, semantic_issues
 
 
 class Strict(BaseModel):
@@ -124,7 +125,16 @@ class ClientRequest(Strict):
     resolution: Literal["answered", "partial", "next_step", "unanswered"]
 
 
+class ApplicabilityDecision(Strict):
+    criterionId: str
+    status: Literal["applicable", "not_applicable", "uncertain"]
+    reason: str = Field(min_length=10, max_length=600)
+    messageIds: list[str] = Field(min_length=1, max_length=500)
+
+
 class Analysis(Strict):
+    # Additive for old stored results and clients. New model schemas require this field.
+    applicability: list[ApplicabilityDecision] = Field(default_factory=list, max_length=50)
     results: list[Finding] = Field(min_length=1, max_length=50)
     summary: str = Field(min_length=1, max_length=3000)
     requests: list[ClientRequest] = Field(default_factory=list, max_length=20)
@@ -299,6 +309,17 @@ def _validate_finding(request, c, r, messages):
 def validate_analysis(request, analysis):
     criteria = {c.id: c for c in request.criteria}
     messages = {m.id: m for m in request.messages}
+    if analysis.applicability:
+        if len(analysis.applicability) != len(criteria) or {
+            d.criterionId for d in analysis.applicability
+        } != set(criteria):
+            raise ValueError("Exactly one applicability decision per active criterion is required")
+        for decision in analysis.applicability:
+            if (
+                len(set(decision.messageIds)) != len(decision.messageIds)
+                or not set(decision.messageIds) <= messages.keys()
+            ):
+                raise GroundingError({decision.criterionId: "Invalid applicability source IDs"})
     for item in analysis.requests:
         if item.messageId not in messages or messages[item.messageId].role != "client":
             raise ValueError("Request inventory must reference actual client messages")
@@ -318,6 +339,10 @@ def validate_analysis(request, analysis):
     }
     if issues:
         raise GroundingError(issues)
+    for decision in analysis.applicability:
+        if decision.status == "uncertain":
+            finding = next(r for r in analysis.results if r.criterionId == decision.criterionId)
+            _review(finding, "Applicability cannot be established from the supplied record")
     for result in analysis.results:
         criterion = criteria[result.criterionId]
         if profile(criterion) == "consultation" and analysis.requests:
@@ -331,7 +356,117 @@ def validate_analysis(request, analysis):
                 _review(
                     result, "Consultation N/A conflicts with the listed substantive client requests"
                 )
+    for cid, issue in semantic_issues(request, analysis).items():
+        _review(next(r for r in analysis.results if r.criterionId == cid), issue)
+    if not analysis.applicability:
+        for result in analysis.results:
+            _review(result, "Legacy result has no explicit applicability decision")
     return analysis
+
+
+def require_consistent_semantics(request, analysis):
+    issues = semantic_issues(request, analysis)
+    if issues:
+        raise GroundingError(issues)
+    return analysis
+
+
+def translate_analysis_ids(analysis, mapping):
+    """Translate validated local message references without moving quotations or changing roles."""
+    translated = analysis.model_copy(deep=True)
+    for decision in translated.applicability:
+        decision.messageIds = [mapping[mid] for mid in decision.messageIds]
+    for finding in translated.results:
+        if finding.evidenceId:
+            finding.evidenceId = mapping[finding.evidenceId]
+        finding.checkedMessageIds = [mapping[mid] for mid in finding.checkedMessageIds]
+        for evidence in finding.evidence:
+            evidence.messageId = mapping[evidence.messageId]
+    for item in translated.requests:
+        item.messageId = mapping[item.messageId]
+        item.operatorMessageIds = [mapping[mid] for mid in item.operatorMessageIds]
+    return translated
+
+
+def merge_analysis(request, base, replacement, selected):
+    """Merge only selected findings/decisions, retaining immutable unrelated Draft results."""
+    findings = {r.criterionId: r for r in replacement.results}
+    decisions = {d.criterionId: d for d in replacement.applicability}
+    previous_decisions = {d.criterionId: d for d in base.applicability}
+    return Analysis(
+        summary=base.summary,
+        results=[findings.get(r.criterionId, r) for r in base.results],
+        applicability=[
+            decisions.get(c.id, previous_decisions.get(c.id))
+            for c in request.criteria
+            if c.id in decisions or c.id in previous_decisions
+        ],
+        requests=replacement.requests
+        if "requests" in replacement.model_fields_set
+        and any(profile(c) == "consultation" for c in selected)
+        else base.requests,
+    )
+
+
+def inherit_prompt_context(messages, template):
+    """Keep Foundation channel/checklist metadata in focused prompts and repairs."""
+    if template is None:
+        return messages
+    payload = json.loads(messages[1]["content"])
+    original = json.loads(template[1]["content"])["evaluation"]
+    payload["evaluation"].update(
+        {key: original[key] for key in ("channel", "checklist_id", "sections") if key in original}
+    )
+    messages[1]["content"] = json.dumps(payload, ensure_ascii=False)
+    return messages
+
+
+async def review_analysis(request, draft, calls, generate, *, prompt_messages=None):
+    targets = review_targets(request, draft)
+    if not targets:
+        return require_consistent_semantics(request, draft)
+    focused = request.model_copy(
+        update={"criteria": [c for c in request.criteria if c.id in targets]}
+    )
+    partial = draft.model_copy(
+        update={
+            "results": [r for r in draft.results if r.criterionId in targets],
+            "applicability": [d for d in draft.applicability if d.criterionId in targets],
+        }
+    )
+    decisions = {d.criterionId: d.status for d in partial.applicability}
+    draft_decisions = [
+        {
+            "criterionId": r.criterionId,
+            "answer": wire_answer(r.answer),
+            "applicability": decisions.get(r.criterionId, "legacy_unspecified"),
+        }
+        for r in partial.results
+    ]
+    messages = inherit_prompt_context(build_messages(focused), prompt_messages)
+    messages.extend(
+        [
+            {
+                "role": "user",
+                "content": critic_instruction(focused.criteria)
+                + "\nReview priorities: "
+                + json.dumps(targets, ensure_ascii=False)
+                + "\nPrior decisions (claims, not facts): "
+                + json.dumps(draft_decisions, ensure_ascii=False)
+                + "\nReassess independently from the original transcript. "
+                "Do not inherit an earlier explanation, request inventory or quotation.",
+            },
+        ]
+    )
+    corrected = await analyze_phase(focused, messages, calls, "critic", generate, partial)
+    final = merge_analysis(request, draft, corrected, focused.criteria)
+    final.summary = (
+        corrected.summary
+        if len(targets) == len(request.criteria)
+        else "Повторно проверены критерии " + ", ".join(targets) + ": " + corrected.summary
+    )
+    validate_analysis(request, final)
+    return require_consistent_semantics(request, final)
 
 
 def score(criteria, results):
@@ -415,7 +550,7 @@ async def analyze_phase(request, messages, calls, phase, generate, analysis=None
         if pending:
             # A genuinely focused request must not carry the full old rubric
             # and invalid assistant answer, which can anchor the model to it.
-            call_messages = build_messages(focused)
+            call_messages = inherit_prompt_context(build_messages(focused), messages)
             call_messages.append({"role": "user", "content": repair_feedback})
             if phase == "critic":
                 call_messages.append(
@@ -446,19 +581,11 @@ async def analyze_phase(request, messages, calls, phase, generate, analysis=None
             candidate = parse_analysis(raw, focused)
             if pending:
                 validate_analysis(focused, candidate)
-                replacements = {r.criterionId: r for r in candidate.results}
-                candidate = Analysis(
-                    summary=analysis.summary,
-                    requests=(
-                        candidate.requests
-                        if "requests" in candidate.model_fields_set
-                        and any(profile(c) == "consultation" for c in focused.criteria)
-                        else analysis.requests
-                    ),
-                    results=[replacements.get(r.criterionId, r) for r in analysis.results],
-                )
+                candidate = merge_analysis(request, analysis, candidate, focused.criteria)
             analysis = candidate
             validate_analysis(request, analysis)
+            if phase == "critic":
+                require_consistent_semantics(request, analysis)
             calls[-1]["validated"] = True
         except (ValueError, KeyError) as exc:
             calls[-1]["validated"] = False
@@ -647,26 +774,12 @@ class Evaluator:
             calls = []
             analysis = None
             draft = None
-            for phase in ("evaluate", "critic"):
-                analysis = await analyze_phase(
-                    request, messages, calls, phase, self.generate, analysis
-                )
-                if phase == "evaluate":
-                    draft = analysis.model_copy(deep=True)
-                    model_draft = analysis.model_dump(exclude_defaults=True)
-                    for finding in model_draft["results"]:
-                        finding["answer"] = wire_answer(finding["answer"])
-                    messages.extend(
-                        [
-                            {
-                                "role": "assistant",
-                                "content": json.dumps(model_draft, ensure_ascii=False),
-                            },
-                            {"role": "user", "content": critic_instruction(request.criteria)},
-                        ]
-                    )
+            analysis = await analyze_phase(request, messages, calls, "evaluate", self.generate)
+            draft = analysis.model_copy(deep=True)
+            analysis = await review_analysis(request, draft, calls, self.generate)
             critic_final = {r.criterionId: r.model_copy(deep=True) for r in analysis.results}
             risk_review = await self._review_sensitive(request, analysis, calls)
+            require_consistent_semantics(request, analysis)
             critic_changes = [
                 {
                     "criterionId": r.criterionId,
@@ -815,6 +928,26 @@ def analysis_schema(request):
     grammar/context overhead on a laptop without weakening runtime validation.
     """
     schema = Analysis.model_json_schema()
+    schema["required"] = [*schema["required"], "applicability"]
+    decisions = []
+    ids = [m.id for m in request.messages]
+    for criterion in request.criteria:
+        decision = copy.deepcopy(schema["$defs"]["ApplicabilityDecision"])
+        decision["properties"]["criterionId"] = {"const": criterion.id}
+        decision["properties"]["status"] = {
+            "enum": ["applicable", "uncertain"]
+            + (["not_applicable"] if criterion.naAllowed else [])
+        }
+        decision["properties"]["messageIds"].update(
+            items={"enum": ids}, maxItems=len(ids), uniqueItems=True
+        )
+        decisions.append(decision)
+    schema["properties"]["applicability"].update(minItems=len(decisions), maxItems=len(decisions))
+    if len(decisions) == 1:
+        schema["properties"]["applicability"]["items"] = decisions[0]
+    else:
+        schema["properties"]["applicability"].pop("items", None)
+        schema["properties"]["applicability"]["prefixItems"] = decisions
     finding = schema["$defs"].pop("Finding")
     ids = [m.id for m in request.messages]
     finding["properties"]["evidenceId"] = {"enum": ["", *ids]}
@@ -877,6 +1010,8 @@ def analysis_schema(request):
                 ]
             )
         )
+        if names:
+            required.append("checks")
         # A non-absence branch cannot emit empty primary evidence. The absence branch
         # permits only non-positive/NA answers and explicit empty quote placeholders.
         direct = {
