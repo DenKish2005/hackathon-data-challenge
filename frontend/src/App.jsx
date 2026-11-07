@@ -42,6 +42,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
+import DialogueAnalytics from "./DialogueAnalytics";
 import {
   initialCriteria,
   conversations as demoConversations,
@@ -55,8 +56,8 @@ const icons = {
   appeals: ShieldCheck,
 };
 const names = {
-  overview: "Обзор",
   conversations: "Диалоги",
+  overview: "Общая статистика",
   criteria: "Критерии оценки",
   agents: "ИИ-команда",
   appeals: "Апелляции",
@@ -164,7 +165,7 @@ function Modal({ title, onClose, children }) {
   );
 }
 export default function App() {
-  const [page, setPage] = useState("overview"),
+  const [page, setPage] = useState("conversations"),
     [dialogs, setDialogs] = useState(() =>
       stored("freedom-cqa-dialogs", demoConversations),
     ),
@@ -202,8 +203,55 @@ export default function App() {
     setPage(p);
     setSelected(null);
     setSearch("");
+    setHighlight(null);
     setMobile(false);
+    if (window.location.hash !== "#" + p)
+      window.history.pushState(null, "", "#" + p);
   }
+  function openDialog(dialog) {
+    setSelected(dialog);
+    setPage("conversations");
+    setHighlight(null);
+    const route = "#dialog/" + encodeURIComponent(dialog.id);
+    if (window.location.hash !== route)
+      window.history.pushState(null, "", route);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+  useEffect(() => {
+    const syncRoute = () => {
+      const route = window.location.hash.slice(1);
+      if (route.startsWith("dialog/")) {
+        let id;
+        try {
+          id = decodeURIComponent(route.slice(7));
+        } catch {
+          return;
+        }
+        const found = dialogs.find((d) => d.id === id);
+        if (found) {
+          setSelected(found);
+          setPage("conversations");
+          setHighlight(null);
+        } else {
+          setSelected(null);
+          setPage("conversations");
+        }
+      } else if (Object.hasOwn(names, route)) {
+        setPage(route);
+        setSelected(null);
+      } else if (!route) {
+        setPage("conversations");
+        setSelected(null);
+      }
+    };
+    syncRoute();
+    window.addEventListener("popstate", syncRoute);
+    window.addEventListener("hashchange", syncRoute);
+    return () => {
+      window.removeEventListener("popstate", syncRoute);
+      window.removeEventListener("hashchange", syncRoute);
+    };
+  }, [dialogs]);
   const filtered = dialogs.filter(
     (d) =>
       (lang === "Все языки" || d.language === lang) &&
@@ -246,16 +294,21 @@ export default function App() {
         : 0,
     };
   });
-  function exportData() {
+  function exportData(target = null) {
+    const chosen = target?.id ? target : null;
     const b = new Blob(
       [
         JSON.stringify(
           {
             demo: true,
-            checklistVersion: version,
-            criteria,
-            conversations: dialogs,
-            appeals,
+            checklistVersion: chosen ? chosen.checklistVersion || 1 : version,
+            criteria: chosen
+              ? chosen.criteriaSnapshot || initialCriteria
+              : criteria,
+            conversations: chosen ? [chosen] : dialogs,
+            appeals: chosen
+              ? appeals.filter((a) => a.dialogId === chosen.id)
+              : appeals,
           },
           null,
           2,
@@ -265,7 +318,9 @@ export default function App() {
     );
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
-    a.download = "freedom-quality-report.json";
+    a.download = chosen
+      ? `freedom-${chosen.id}-report.json`
+      : "freedom-quality-report.json";
     a.click();
     URL.revokeObjectURL(a.href);
     setToast("Отчёт экспортирован в JSON");
@@ -296,7 +351,7 @@ export default function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            navigate("overview");
+            navigate("conversations");
           }}
         >
           <span className="freedom-symbol" aria-hidden="true">
@@ -386,7 +441,7 @@ export default function App() {
             </button>
             <span>Freedom Broker</span>
             <ChevronRight size={14} />
-            <strong>{names[page]}</strong>
+            <strong>{selected ? "Аналитика диалога" : names[page]}</strong>
           </div>
           <div className="topbar-actions">
             <span className="demo-chip">
@@ -408,23 +463,52 @@ export default function App() {
         <main>
           {selected ? (
             <>
-              <button className="back-link" onClick={() => setSelected(null)}>
+              <button
+                className="back-link"
+                onClick={() => navigate("conversations")}
+              >
                 <ArrowLeft size={16} /> К списку диалогов
               </button>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">
-                    КАРТОЧКА ДИАЛОГА · {selected.id}
-                  </div>
-                  <h1>{selected.topic}</h1>
+                  <div className="eyebrow">АНАЛИТИКА / {selected.id}</div>
+                  <h1>Аналитика диалога</h1>
                   <p>
-                    {selected.customer} <span className="dot-sep">•</span>{" "}
-                    {selected.language} <span className="dot-sep">•</span>{" "}
-                    {selected.duration}
+                    <strong>{selected.topic}</strong>{" "}
+                    <span className="dot-sep">•</span> {selected.customer}{" "}
+                    <span className="dot-sep">•</span> {selected.language}{" "}
+                    <span className="dot-sep">•</span> {selected.duration}
                   </p>
                 </div>
-                <Badge status={selected.status} />
+                <div className="dialogue-heading-tools">
+                  <select
+                    aria-label="Выбрать другой диалог"
+                    value={selected.id}
+                    onChange={(e) =>
+                      openDialog(dialogs.find((d) => d.id === e.target.value))
+                    }
+                  >
+                    {dialogs.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.id} · {d.topic}
+                      </option>
+                    ))}
+                  </select>
+                  <Badge status={selected.status} />
+                  <Button onClick={() => exportData(selected)}>
+                    <ArrowDownToLine size={15} />
+                    Отчёт
+                  </Button>
+                </div>
               </div>
+              <DialogueAnalytics
+                dialog={selected}
+                criteria={selected.criteriaSnapshot || initialCriteria}
+                onEvidence={evidence}
+                onOpenAppeal={(result) =>
+                  setModal({ type: "appeal", dialog: selected, result })
+                }
+              />
               <div className="detail-grid">
                 <section className="panel transcript">
                   <div className="panel-heading">
@@ -493,22 +577,12 @@ export default function App() {
                       v{selected.checklistVersion || 1}
                     </span>
                   </div>
-                  <div className="evaluation-total">
-                    <div>
-                      <span className="muted">Итоговый балл</span>
-                      <strong>
-                        {selected.score ?? "—"}
-                        <small>/100</small>
-                      </strong>
-                    </div>
-                    <div className="score-orbit">
-                      <ShieldCheck size={30} />
-                    </div>
-                  </div>
                   <div className="original-note">
-                    {selected.originalScore !== undefined
-                      ? `Исходная оценка: ${selected.originalScore} · результат после пересмотра`
-                      : "Демонстрационная оценка · не результат запуска модели"}
+                    {!selected.results?.length
+                      ? "Оценка ещё не получена. Подключите сервер оценивания."
+                      : selected.originalScore !== undefined
+                        ? `Исходная оценка: ${selected.originalScore} · результат после пересмотра`
+                        : "Демонстрационная оценка · не результат запуска модели"}
                   </div>
                   <div className="criteria-results">
                     {selected.critical && (
@@ -598,13 +672,17 @@ export default function App() {
                     FREEDOM BROKER / QUALITY INTELLIGENCE
                   </div>
                   <h1>
-                    {page === "overview" ? "Обзор качества" : names[page]}
+                    {page === "overview"
+                      ? "Обзор качества"
+                      : page === "conversations"
+                        ? "Выберите диалог"
+                        : names[page]}
                   </h1>
                   <p>
                     {page === "overview"
                       ? "Вся картина клиентского сервиса. От первого сообщения до результата."
                       : page === "conversations"
-                        ? "Все разговоры, важные детали и возможности для роста."
+                        ? "Откройте один разговор, чтобы увидеть его оценку, аналитику и доказательства."
                         : page === "criteria"
                           ? "Ваш стандарт качества. Гибкие правила для каждого разговора."
                           : page === "agents"
@@ -652,6 +730,33 @@ export default function App() {
                   )}
                 </div>
               </div>
+              {page === "conversations" && (
+                <section className="dialogue-selection-intro">
+                  <div className="selection-step">
+                    <span>01</span>
+                    <div>
+                      <strong>Выберите диалог</strong>
+                      <small>Найдите нужный разговор в списке</small>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} />
+                  <div className="selection-step next">
+                    <span>02</span>
+                    <div>
+                      <strong>Изучите аналитику</strong>
+                      <small>Оценки и нарушения именно этого диалога</small>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} />
+                  <div className="selection-step next">
+                    <span>03</span>
+                    <div>
+                      <strong>Проверьте доказательства</strong>
+                      <small>Перейдите к реплике или подайте апелляцию</small>
+                    </div>
+                  </div>
+                </section>
+              )}
               {page === "overview" && (
                 <>
                   <FreedomHero
@@ -897,11 +1002,11 @@ export default function App() {
                         {filtered
                           .slice(0, page === "overview" ? 5 : 100)
                           .map((d) => (
-                            <tr key={d.id} onClick={() => setSelected(d)}>
+                            <tr key={d.id} onClick={() => openDialog(d)}>
                               <td>
                                 <button
                                   className="dialog-button"
-                                  onClick={() => setSelected(d)}
+                                  onClick={() => openDialog(d)}
                                 >
                                   <span
                                     className={
@@ -959,7 +1064,12 @@ export default function App() {
                               </td>
                               <td className="date-cell">{d.date}</td>
                               <td>
-                                <ChevronRight size={16} />
+                                <button
+                                  className="analysis-row-action"
+                                  onClick={() => openDialog(d)}
+                                >
+                                  Аналитика <ArrowUpRight size={15} />
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -1285,7 +1395,7 @@ export default function App() {
               appeal={modal.appeal}
               onOpenDialog={() => {
                 const d = dialogs.find((d) => d.id === modal.appeal.dialogId);
-                setSelected(d);
+                openDialog(d);
                 setModal(null);
                 setHighlight(null);
               }}

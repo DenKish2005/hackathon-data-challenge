@@ -1,6 +1,8 @@
 # Freedom Broker · Quality Intelligence
 
-![Freedom Broker CQA dashboard](docs/freedom-overview.png)
+![Analytics for one selected dialogue](docs/freedom-dialogue.png)
+
+[Conversation selection screen](docs/freedom-selection.png)
 
 [Mobile preview](docs/freedom-mobile.png)
 
@@ -91,3 +93,19 @@ The UI uses a Freedom-inspired green, white and charcoal palette and a typograph
 Charts and criterion summaries now derive from the current evaluations instead of fixed illustration values. The chart selector switches the latest seven evaluations/all evaluations, not an unsupported date filter. New checklist versions do not retroactively change historical results.
 
 Production assets use relative paths, suitable for either a server root or a GitHub Pages repository subpath. Public deployment still needs an explicitly selected hosting target and access.
+
+## Primary flow: choose one dialogue
+
+The application now starts at **Диалоги**. Search or filter the list, then click a conversation or its **Аналитика** button. The per-dialogue screen shows its own score, operator, channel, critical flag, criterion profile and evidence-backed findings. It never substitutes the dataset average for the selected dialogue's score.
+
+The dropdown switches the entire analysis to another conversation. `#dialog/<id>` links survive page reload and browser back/forward. A pending imported dialogue has no fabricated score or findings. The **Отчёт** action exports only the selected dialogue and its associated appeals; the list's export includes the dataset. Aggregate statistics remain a separate secondary section.
+
+## GitHub Pages publishing
+
+The repository workflow `.github/workflows/frontend-pages.yml` builds and publishes the frontend on pushes to `main` affecting the frontend, and supports manual runs. It uses official GitHub Pages actions and the workflow-provided token; no personal token or application secret is embedded.
+
+A repository administrator must enable **Settings → Pages → Build and deployment → Source: GitHub Actions** once. If an earlier run failed because Pages was disabled, rerun **Publish Freedom CQA to GitHub Pages** after saving that setting. The expected project address is `https://denkish2005.github.io/hackathon-data-challenge/`; treat it as published only after the deployment job succeeds.
+
+The production build uses relative asset paths, and hash routes work at a repository subpath. No server-side API or model is deployed by this workflow: it publishes the frontend prototype.
+
+The supplied `https://fbroker.kz/statistics` reference could not be captured in this environment because outbound policy denied that destination. The flow and Freedom-inspired styling were verified on the local implementation, not against a captured copy of that page.

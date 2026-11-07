@@ -1,5 +1,6 @@
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   initialCriteria,
   conversations,
@@ -53,6 +54,14 @@ try {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:5173");
   await page
+    .getByRole("heading", { name: "Выберите диалог", exact: true })
+    .waitFor();
+  assert.equal(await page.locator(".single-analytics").count(), 0);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Общая статистика", exact: true })
+    .click();
+  await page
     .getByRole("heading", { name: "Обзор качества", exact: true })
     .waitFor();
   assert.match(await page.title(), /Freedom Broker/);
@@ -77,6 +86,34 @@ try {
   await page.locator("tbody .dialog-button").first().click();
   await page.getByRole("heading", { name: "Транскрипт" }).waitFor();
   await page
+    .getByRole("heading", { name: "Аналитика диалога", exact: true })
+    .waitFor();
+  assert.equal(await page.locator(".single-analytics").count(), 1);
+  assert.ok(page.url().endsWith("#dialog/" + base.id));
+  const downloadEvent = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Отчёт", exact: true }).click();
+  const exported = JSON.parse(
+    await readFile(await (await downloadEvent).path(), "utf8"),
+  );
+  assert.equal(exported.conversations.length, 1);
+  assert.equal(exported.conversations[0].id, base.id);
+
+  const other = conversations.find(
+    (d) => d.id !== base.id && d.status !== "pending",
+  );
+  await page.getByLabel("Выбрать другой диалог").selectOption(other.id);
+  assert.ok(page.url().endsWith("#dialog/" + other.id));
+  assert.match(
+    await page.locator(".sa-score-ring").getAttribute("aria-label"),
+    new RegExp(String(other.score).replace(".", ",")),
+  );
+  await page.getByLabel("Выбрать другой диалог").selectOption(base.id);
+  await page.reload();
+  await page
+    .getByRole("heading", { name: "Аналитика диалога", exact: true })
+    .waitFor();
+  assert.ok(page.url().endsWith("#dialog/" + base.id));
+  await page
     .getByRole("button", {
       name: "Реплика #" + base.results[0].evidenceId,
       exact: true,
@@ -85,6 +122,7 @@ try {
     .click();
   assert.ok((await page.locator(".message.highlighted").count()) > 0);
   await page
+    .locator(".criteria-results")
     .getByRole("button", { name: "Оспорить", exact: true })
     .first()
     .click();
@@ -167,12 +205,16 @@ try {
   await page.getByLabel("Поиск диалогов").fill("import-smoke");
   assert.equal(await page.locator("tbody tr").count(), 1);
   await page.locator("tbody .dialog-button").first().click();
-  await page.getByRole("heading", { name: "Ожидает оценки" }).waitFor();
+  await page.getByRole("heading", { name: "Ожидает оценки" }).first().waitFor();
+  assert.equal(
+    await page.locator(".sa-score-ring").getAttribute("aria-label"),
+    "Итоговый балл ещё не рассчитан",
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Открыть меню" }).click();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "Обзор", exact: true })
+    .getByRole("button", { name: "Общая статистика", exact: true })
     .click();
   assert.equal(
     await page.evaluate(
