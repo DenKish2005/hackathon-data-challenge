@@ -164,6 +164,14 @@ Python.
 """
 
 
+CRITIC_RULES = (
+    "Роль Critic: проверь каждый ответ по исходному тексту. "
+    "Особенно N/A, первый ответ оператора, идентификацию до "
+    "защищённого действия, частные платные услуги, обрыв диалога "
+    "и ступени шкал. Исправь ошибки. Верни полный финальный JSON."
+)
+
+
 class Store:
     def __init__(self, path=None):
         self.path = path or os.getenv("CQA_DB", ".runtime/cqa.sqlite3")
@@ -311,6 +319,7 @@ class Evaluator:
                     "input": content,
                     "model": self.model,
                     "prompt": RULES,
+                    "criticPrompt": CRITIC_RULES,
                     "pipeline": 2,
                     "strategy": self.strategy,
                     "agentPrompts": prompt_signature() if self.strategy == "multi_agent" else None,
@@ -339,12 +348,7 @@ class Evaluator:
                         {"role": "assistant", "content": analysis.model_dump_json()},
                         {
                             "role": "user",
-                            "content": (
-                                "Роль Critic: проверь каждый ответ по исходному тексту. "
-                                "Особенно N/A, первый ответ оператора, идентификацию до "
-                                "защищённого действия, частные платные услуги, обрыв диалога "
-                                "и ступени шкал. Исправь ошибки. Верни полный финальный JSON."
-                            ),
+                            "content": CRITIC_RULES,
                         },
                     ]
                 )

@@ -38,8 +38,25 @@ class Settings:
     )
     concurrency: int = field(default_factory=lambda: int(os.getenv("CQA_WORKERS", "2")))
     timeout: float = field(default_factory=lambda: float(os.getenv("CQA_JOB_TIMEOUT", "120")))
+    llm_timeout: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT", "60")))
+    llm_concurrency: int = field(default_factory=lambda: int(os.getenv("LLM_CONCURRENCY", "1")))
+    llm_attempts: int = field(default_factory=lambda: int(os.getenv("LLM_ATTEMPTS", "3")))
+    llm_context_size: int = field(
+        default_factory=lambda: int(os.getenv("LLM_CONTEXT_SIZE", "65536"))
+    )
+    llm_output_limit: int = field(
+        default_factory=lambda: int(os.getenv("LLM_OUTPUT_LIMIT", "8000"))
+    )
     prompt_version: str = "foundation-v1"
 
     def __post_init__(self):
         if not 1 <= self.concurrency <= 16 or self.timeout <= 0:
             raise ValueError("Invalid CQA_WORKERS or CQA_JOB_TIMEOUT")
+        if (
+            not 1 <= self.llm_concurrency <= 16
+            or not 1 <= self.llm_attempts <= 5
+            or self.llm_timeout <= 0
+            or self.llm_output_limit < 1
+            or self.llm_context_size <= self.llm_output_limit + 1024
+        ):
+            raise ValueError("Invalid LLM limits")

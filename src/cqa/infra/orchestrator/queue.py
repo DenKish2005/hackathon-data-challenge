@@ -103,6 +103,7 @@ class Worker:
                     )
             async with asyncio.timeout(self.settings.timeout):
                 result = await self.pipeline.run(conversation, checklist)
+            result["metadata"]["prompt_version"] = self.settings.prompt_version
             with self.db.sessions.begin() as session:
                 job = session.get(EvaluationJob, job_id)
                 session.add(

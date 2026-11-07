@@ -3,12 +3,13 @@
 import hashlib
 import inspect
 import json
+from time import perf_counter
 from typing import Protocol
 
 from pydantic import Field, StrictFloat, StrictStr
 
 from cqa.backend.schemas import ChecklistView, ConversationDetail, Schema
-from cqa.service import RULES, Analysis, EvaluationRequest, score, validate_analysis
+from cqa.service import CRITIC_RULES, RULES, Analysis, EvaluationRequest, score, validate_analysis
 
 
 class Finding(Schema):
@@ -135,12 +136,13 @@ class ProviderEvaluator:
     def configuration(self):
         return {
             "evaluator": self.name,
-            "adapter_version": 1,
+            "adapter_version": 2,
+            "rules": RULES,
             "schema": Analysis.model_json_schema(),
             **self.provider.configuration(),
         }
 
-    async def evaluate_conversation(self, conversation, checklist):
+    def request_messages(self, conversation, checklist):
         # Reuse the AI owner's established prompt, output schema and quote validation.
         request = EvaluationRequest(
             conversation_id=conversation.conversation_id,
@@ -178,9 +180,26 @@ class ProviderEvaluator:
                 ),
             },
         ]
-        analysis = validate_analysis(
-            request, Analysis.model_validate(await self.provider.generate(messages, schema))
-        )
+        return request, messages
+
+    async def analyze(self, conversation, checklist, previous=None):
+        request, messages = self.request_messages(conversation, checklist)
+        if previous is not None:
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": json.dumps(previous.metadata["analysis"], ensure_ascii=False),
+                    },
+                    {"role": "user", "content": CRITIC_RULES},
+                ]
+            )
+        generated = await self.provider.generate(messages, Analysis.model_json_schema())
+        analysis = validate_analysis(request, Analysis.model_validate(generated))
+        calls = [
+            *(previous.metadata.get("calls", []) if previous else []),
+            getattr(generated, "metadata", {}),
+        ]
         return EvaluationResult(
             is_mock=self.is_mock,
             findings=[
@@ -197,8 +216,26 @@ class ProviderEvaluator:
             metadata={
                 "summary": analysis.summary,
                 "quotes": {f.criterionId: f.quote for f in analysis.results},
+                "analysis": analysis.model_dump(mode="json"),
+                "calls": calls,
             },
         )
+
+    async def evaluate_conversation(self, conversation, checklist):
+        return await self.analyze(conversation, checklist)
+
+
+class ProviderCritic:
+    """Reuse the existing team's Critic instruction and exact quote validation."""
+
+    def __init__(self, evaluator):
+        self.evaluator = evaluator
+
+    def configuration(self):
+        return {"critic": CRITIC_RULES, "adapter": self.evaluator.configuration()}
+
+    async def review(self, conversation, checklist, result):
+        return await self.evaluator.analyze(conversation, checklist, result)
 
 
 class Pipeline:
@@ -231,6 +268,7 @@ class Pipeline:
         }
 
     async def run(self, conversation, checklist):
+        started = perf_counter()
         stages = {}
         if self.extractor:
             facts = await self.extractor.extract(conversation)
@@ -245,6 +283,7 @@ class Pipeline:
             )
         # The infrastructure is authoritative about whether mock mode was used.
         result.is_mock = self.evaluator.is_mock
+        result.metadata["duration_seconds"] = round(perf_counter() - started, 6)
         return {
             **result.model_dump(mode="json"),
             **self.scorer.score(checklist, result),
