@@ -1,35 +1,35 @@
-# Design QA — light desktop Freedom workspace
+# Design QA — Freedom presentation workspace
 
-final result: passed
+Final result: passed for the verified desktop flows.
 
-## Visual target and scope
+## Reference and scope
 
-The selected visual sources are the user's notebook wireframe (`photo_2_2026-11-07_15-23-13.jpg`) and the photographed Freedom presentation (`photo_1_2026-11-07_15-23-13.jpg`). The notebook defines the hierarchy: criteria left, conversation list right and action below it, overall statistics underneath, selected-dialogue results and appeal entry points at the bottom. The presentation grounds the light surfaces, green accent, transcript/evaluation relationship and restrained typography.
+The selected reference is the user's photographed Freedom quality-control presentation (`photo_1_2026-11-07_15-23-13.jpg`). The review follows its green CQA rail, white surfaces, Freedom mark at the top right, conversation timeline, transcript on the left and score/checklist on the right. The notebook sketch remains the reference for the selection desk.
 
-This is an interpretation of the supplied photos for a desktop application, not a pixel clone of a tilted photograph. `https://fbroker.kz/` was retried and denied by outbound network policy (403); no claim is made that live site assets or exact official brand tokens were verified. Roboto is an open-source matching sans-serif choice, not an asserted official brand font. No mobile implementation was requested or validated in this iteration.
+This is a desktop interpretation of the supplied photographs, not a pixel clone of a tilted slide. Live access to `https://fbroker.kz/` was denied by network policy; no claim is made that the live website or official brandbook was captured. The existing Freedom shield is locally stored, with source documented in `public/freedom-logo-source.md`. Roboto is self-hosted, not asserted to be the official brand font.
 
-## Source-to-implementation checks
+## Implementation checks
 
-- Two top panels preserve criteria-left and chats-right hierarchy.
-- Chat selection is explicit; the primary analysis button is disabled until a row is selected.
-- Dataset statistics use actual fixture counts and computed average. The chart categories are totals/evaluated/review/pending rather than invented semantic topic labels.
-- The lower selected-dialogue panel updates with its own historical criterion results, score and findings. The full review opens from an explicit action.
-- Existing rules, N/A normalization, separate critical flag and appeal recalculation remain functional.
-- White panels, light dividers, neutral reading text and green actions replace the dark theme. Small score/finding contrast issues found during review were corrected.
+- A fresh visit requires explicit conversation selection before opening analytics.
+- The selected conversation has its own score, all eight historical criteria, actual transcript and evidence. A changed current checklist does not rewrite its snapshot.
+- The ring sits beside the criterion list, matching the presentation hierarchy. Selecting a criterion shows one explanation below it, followed by its real quote and appeal action.
+- The timeline shows actual message positions and timestamps. No fabricated sound waveform is shown; audio appears only when an actual audio URL exists.
+- Evidence navigation highlights and focuses the referenced message and scrolls the transcript container. Amber highlights evidence and issues; primary reading text uses neutral dark ink.
+- Pending dialogues retain an empty score and no invented findings. N/A normalization and separate critical flags remain unchanged.
+- Advanced evaluation/history controls remain connected below the review. The teammate's Ollama evaluation and shared-workspace integration are retained.
+- Import, export, contextual appeals, human review and score recalculation remain functional.
 
-## Browser verification
+## Browser checks
 
-Verified at 1440×1100 and 1280×900 in Chromium; no horizontal page overflow at these desktop viewports and no JavaScript errors. `npm run build` and `npm run test:smoke` passed against the production preview.
+Chromium: 1440×1000 and 1280×900 desktop viewports. No horizontal page overflow or JavaScript errors in the smoke flow. Build, desktop smoke and mocked frontend/backend evaluation contract pass. The contract verifies a visible503 failure followed by a successful response, the transcript, eight current criteria and cache flag sent to the backend. This does not establish real-model accuracy.
 
-The desktop smoke check exercises search/filter/reset, explicit selection gate, live selected preview, criterion editing/version preservation, report export scoped to one dialogue, evidence navigation, contextual appeal and human decision with recalculation, pending JSON import without fabricated scores, deep links and Escape dismissal.
+No mobile iteration was requested. Static GitHub Pages serves the UI; a separately running API is needed for model evaluation and shared persistence.
 
-## Accepted screenshots
+## Screenshots
 
-- [Initial desktop workspace](docs/freedom-selection.png)
-- [Selected conversation and statistics](docs/freedom-desk-selected.png)
-- [Full transcript/evaluation review](docs/freedom-dialogue.png)
-- [Appeal context](docs/freedom-appeal.png)
+- [Choose a conversation](docs/freedom-selection.png)
+- [Selected conversation preview](docs/freedom-desk-selected.png)
+- [Conversation analysis](docs/freedom-dialogue.png)
+- [Contextual appeal](docs/freedom-appeal.png)
 - [Checklist](docs/freedom-criteria.png)
-- [Dataset overview](docs/freedom-overview.png)
-
-No outstanding P0/P1/P2 issues were found in the verified desktop flow. Full WCAG certification, real-model accuracy and live server integration were not part of this UI verification. The dataset and evaluations remain demonstrative.
+- [Overview](docs/freedom-overview.png)

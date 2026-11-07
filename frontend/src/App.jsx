@@ -42,7 +42,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
-import ReviewWorkspace from "./ReviewWorkspace";
+import ConversationAnalysis from "./ConversationAnalysis";
 import SelectionDesk from "./SelectionDesk";
 import EvaluationPanel from "./EvaluationPanel";
 import WorkspaceSync from "./WorkspaceSync";
@@ -415,11 +415,8 @@ export default function App() {
             navigate("conversations");
           }}
         >
-          <span className="freedom-symbol" aria-hidden="true">
-            <ShieldCheck size={27} />
-          </span>
-          <span className="freedom-wordmark">
-            FREEDOM<span>BROKER</span>
+          <span className="cqa-brand">
+            CQA<span>Контроль качества</span>
           </span>
         </a>
         <div className="workspace">
@@ -495,10 +492,6 @@ export default function App() {
             <strong>{selected ? selected.id : names[page]}</strong>
           </div>
           <div className="topbar-actions">
-            <span className="demo-chip">
-              <span />
-              Демо-данные
-            </span>
             <button
               className="search-shortcut"
               aria-label="Быстрый поиск — Ctrl K"
@@ -515,34 +508,46 @@ export default function App() {
               <Search size={14} />
               <kbd>Ctrl K</kbd>
             </button>
+            <a
+              className="freedom-lockup"
+              href="https://fbroker.kz/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Freedom Broker — официальный сайт"
+            >
+              <img src="./freedom-logo.png" alt="" />
+              <span>
+                FREEDOM<small>BROKER</small>
+              </span>
+            </a>
           </div>
         </header>
         <main id="main-content">
           {selected ? (
             <>
-              <button className="back-link" onClick={closeDialog}>
-                <ArrowLeft size={16} /> К списку диалогов
-              </button>
-              <div className="page-heading">
+              <div className="analysis-toolbar">
+                <button className="back-link" onClick={closeDialog}>
+                  <ArrowLeft size={15} /> Все диалоги
+                </button>
                 <div>
-                  <div className="eyebrow">АНАЛИТИКА / {selected.id}</div>
-                  <h1>{selected.topic}</h1>
-                  <p>
-                    {selected.id} <span className="dot-sep">•</span>{" "}
-                    {selected.customer} <span className="dot-sep">•</span>{" "}
-                    {selected.language} <span className="dot-sep">•</span>{" "}
-                    {selected.duration}
-                  </p>
-                </div>
-                <div className="dialogue-heading-tools">
-                  <div className="review-pagination">
+                  <span className="analysis-source">
+                    {selected.source === "ollama"
+                      ? "AI-анализ"
+                      : selected.status === "pending"
+                        ? "Без оценки"
+                        : "Демонстрационный пример"}
+                  </span>
+                  <div
+                    className="review-pagination"
+                    aria-label="Навигация по очереди"
+                  >
                     <button
                       className="icon-button"
                       aria-label="Предыдущий диалог"
                       disabled={reviewIndex <= 0}
                       onClick={() => openDialog(reviewQueue[reviewIndex - 1])}
                     >
-                      <ArrowLeft size={16} />
+                      <ArrowLeft size={15} />
                     </button>
                     <span>
                       {reviewIndex + 1} / {reviewQueue.length}
@@ -555,50 +560,41 @@ export default function App() {
                       }
                       onClick={() => openDialog(reviewQueue[reviewIndex + 1])}
                     >
-                      <ArrowRight size={16} />
+                      <ArrowRight size={15} />
                     </button>
                   </div>
-                  <select
-                    aria-label="Выбрать другой диалог"
-                    value={selected.id}
-                    onChange={(e) =>
-                      openDialog(dialogs.find((d) => d.id === e.target.value))
-                    }
-                  >
-                    {dialogs.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.id} · {d.topic}
-                      </option>
-                    ))}
-                  </select>
-                  <Badge status={selected.status} />
                   <Button onClick={() => exportData(selected)}>
                     <ArrowDownToLine size={15} />
                     Отчёт
                   </Button>
                 </div>
               </div>
-              <EvaluationPanel
-                dialogs={[selected]}
-                criteria={criteria}
-                version={version}
-                onResult={applyEvaluation}
-              />
-              <p className="muted">
-                {selected.source === "ollama"
-                  ? `AI: ${selected.model} · ${selected.passes} прохода · ${selected.tokens} токенов · ${selected.cached ? "кэш" : "новый анализ"}`
-                  : selected.status === "pending"
-                    ? "Диалог ещё не оценён"
-                    : "Синтетический демонстрационный пример — не результат AI"}
-              </p>
-              <ReviewWorkspace
+              <ConversationAnalysis
                 key={selected.id}
                 dialog={selected}
+                dialogs={dialogs}
+                onSwitch={(id) => openDialog(dialogs.find((d) => d.id === id))}
                 appeals={appeals.filter((a) => a.dialogId === selected.id)}
                 onAppeal={(result) =>
                   setModal({ type: "appeal", dialog: selected, result })
                 }
               />
+              <details className="backend-controls analysis-backend">
+                <summary>Оценивание и история запусков</summary>
+                <EvaluationPanel
+                  dialogs={[selected]}
+                  criteria={criteria}
+                  version={version}
+                  onResult={applyEvaluation}
+                />
+                <p className="analysis-run-source">
+                  {selected.source === "ollama"
+                    ? `AI: ${selected.model} · ${selected.passes} прохода · ${selected.tokens} токенов · ${selected.cached ? "кэш" : "новый анализ"}`
+                    : selected.status === "pending"
+                      ? "Диалог ещё не оценён"
+                      : "Синтетический демонстрационный пример — не результат AI"}
+                </p>
+              </details>
             </>
           ) : (
             <>
@@ -673,7 +669,7 @@ export default function App() {
                 </div>
               </div>
               {page === "conversations" && (
-<SelectionDesk
+                <SelectionDesk
                   dialogs={dialogs}
                   initialCandidateId={lastDialogId}
                   criteria={criteria}
@@ -688,7 +684,17 @@ export default function App() {
                   }
                 />
               )}
-              {page === "conversations" && <details className="backend-controls"><summary>Оценивание новых диалогов</summary><EvaluationPanel dialogs={dialogs.filter(d=>d.status==="pending")} criteria={criteria} version={version} onResult={applyEvaluation}/></details>}
+              {page === "conversations" && (
+                <details className="backend-controls">
+                  <summary>Оценивание новых диалогов</summary>
+                  <EvaluationPanel
+                    dialogs={dialogs.filter((d) => d.status === "pending")}
+                    criteria={criteria}
+                    version={version}
+                    onResult={applyEvaluation}
+                  />
+                </details>
+              )}
               {page === "overview" && (
                 <>
                   <div className="toolbar overview-toolbar">

@@ -20,7 +20,16 @@ try {
     }),
   );
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:8000");
-  await page.locator("tbody .dialog-button").first().click();
+  await page.locator(".desk-chat-row").first().click();
+  await page
+    .getByRole("button", { name: "Открыть аналитику", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Анализ разговора", exact: true })
+    .waitFor();
+  await page
+    .getByText("Оценивание и история запусков", { exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Оценить диалог", exact: true })
     .click();

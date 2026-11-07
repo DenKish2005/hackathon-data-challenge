@@ -6,7 +6,7 @@
 
 [Desktop selection workspace](docs/freedom-selection.png)
 
-Responsive Russian-language frontend for the CQA hackathon. Built with React, Vite and Lucide icons. Changes in this PR are confined to `frontend/`.
+Desktop Russian-language frontend for the CQA hackathon. Built with React, Vite and Lucide icons. The presentation redesign is confined to `frontend/`.
 
 ## Run
 
@@ -30,13 +30,13 @@ Production: `npm run build`. Serve `dist/` using your web server, or use `npm ru
 - Appeal submission and human review; score recalculation retains original answers and score.
 - JSON import for the organizers' `data.records` response; imported conversations remain pending evaluation.
 - JSON export of checklist, conversations and appeals.
-- Responsive mobile navigation, accessible labelled forms, keyboard modal focus management.
+- Labelled desktop forms and keyboard modal focus management.
 
 ## Demo boundaries
 
 The UI starts with **synthetic demonstration conversations**, not the organizers' DEV dataset. Analytics charts are computed from the current demonstration evaluations. The Python CQA API now evaluates imported conversations through local Ollama, with a second critic pass and server-side scoring. Start the service using the root README. The standalone static site remains a UI demo. Imported conversations have no evaluation until an API request succeeds. No API keys or signed URLs belong in the frontend.
 
-State is saved in SQLite through the Python API, with a browser-local fallback in localStorage. This is convenient for a prototype, not shared server storage. Clear the site's browser storage to reset the demo. Store real conversations and decisions on your backend when connecting the product; review browser retention needs before importing confidential data.
+State is saved in SQLite through the Python API, with a browser-local fallback in localStorage. The server provides shared persistence; static hosting falls back to browser storage. Clear the site's browser storage to reset the demo. Store real conversations and decisions on your backend when connecting the product; review browser retention needs before importing confidential data.
 
 ## Backend integration contract
 
@@ -60,7 +60,7 @@ npm run build
 npm run test:smoke
 ```
 
-The smoke test uses installed Chromium at `/usr/bin/chromium`. Set `CHROMIUM_PATH` and `BASE_URL` for other environments. It checks scoring, search/filters, evidence navigation, appeal review, checklist persistence, JSON import, modal keyboard dismissal and mobile overflow.
+The smoke test uses installed Chromium at `/usr/bin/chromium`. Set `CHROMIUM_PATH` and `BASE_URL` for other environments. It checks scoring, search/filters, evidence navigation, appeal review, checklist persistence, JSON import, modal keyboard dismissal and desktop overflow.
 
 ## Three-person Git workflow
 
@@ -88,11 +88,11 @@ Before merging, fetch main and merge it into your feature branch, resolve confli
 
 ## Freedom design refresh
 
-The UI uses a Freedom-inspired light green-and-white palette and a typographic Freedom Broker lockup. Roboto is self-hosted, including Cyrillic, so the interface does not depend on Google Fonts. Existing browser-local state migrates from the previous prototype's storage keys.
+The UI uses a light green-and-white palette and the existing Freedom shield mark. Roboto is self-hosted, including Cyrillic, so the interface does not depend on Google Fonts. Existing browser-local state migrates from the previous prototype's storage keys.
 
 Charts and criterion summaries now derive from the current evaluations instead of fixed illustration values. The chart selector switches the latest seven evaluations/all evaluations, not an unsupported date filter. New checklist versions do not retroactively change historical results.
 
-Production assets use relative paths, suitable for either a server root or a GitHub Pages repository subpath. Public deployment still needs an explicitly selected hosting target and access.
+Production assets use relative paths, suitable for either a server root or a GitHub Pages repository subpath. The static deployment target is the repository’s GitHub Pages site.
 
 ## Primary flow: choose one dialogue
 
@@ -110,24 +110,12 @@ The production build uses relative asset paths, and hash routes work at a reposi
 
 The supplied `https://fbroker.kz/statistics` reference could not be captured in this environment because outbound policy denied that destination. The flow and Freedom-inspired styling were verified on the local implementation, not against a captured copy of that page.
 
-## Review workspace
+## Light desktop workspace
 
-The primary task remains **select a dialogue → verify its evaluation → inspect evidence → appeal when needed**. The UI uses one token-based stylesheet (`src/styles.css`) and a dedicated `ReviewWorkspace` component. Old decorative analytics and overlapping theme stylesheets were removed.
+The selected reference is the user's photograph of the Freedom quality-control presentation. `ConversationAnalysis.jsx` implements the conversation review: actual message chronology, transcript on the left, a computed score and all eight checklist results on the right. Clicking a criterion shows one explanation and a source quote; evidence actions highlight and focus the real message. The timeline represents messages, not a fabricated audio waveform. An audio player appears only when an actual audio URL is present.
 
-- Queue tabs expose all, review, pending and critical cases; search, language/channel filters, score sorting and ten-row pagination work together.
-- Returning through “К списку диалогов” preserves the queue query. Ctrl/Cmd+K focuses search; previous/next controls follow the filtered queue.
-- The desktop review is one compact score strip and two independently scrolling panes. One criterion expands at a time, with its reason, calculated contribution and a quote from the actual transcript.
-- Transcript search marks matches and supports Enter/Shift+Enter navigation. Evidence links highlight and focus their source message.
-- Mobile uses cards with visible score/status and separate evaluation/transcript tabs; evidence navigation switches panes automatically.
-- Appeals and decisions include the original answer, explanation and source quote. The review history uses saved appeals rather than generated events.
-- Agent implementation details are moved to a short methodology page; there are no simulated agent activity indicators or promotional panels.
+The green CQA rail and white canvas follow the presentation. The existing Freedom shield PNG is served locally, including as the favicon; see [asset source](public/freedom-logo-source.md). Roboto is self-hosted and is not claimed to be the official brand font. `presentation.css` scopes the current review layout and shared desktop shell; existing forms and other screens retain their base styles.
 
-See [UX review and verification](docs/ux-review.md). This is still a browser-local prototype with demonstration evaluations; the redesign does not introduce a live scoring model or shared persistence.
+`SelectionDesk.jsx` owns the explicit choose → open analysis flow. Existing evaluation snapshots, N/A normalization, critical flags, appeals, import/export and backend controls remain connected. Advanced AI execution/history is below the review in a disclosure. No dialogue is preselected on a fresh visit, and pending dialogues never receive invented scores.
 
-## Light desktop desk from supplied references
-
-The latest design follows the user's notebook wireframe and Freedom presentation photo. Those supplied images are the visual source: a light workspace, checklist and conversation selector side by side, dataset statistics beneath them, and the selected dialogue's results and appeal entry points below. This iteration targets desktop, not a mobile layout.
-
-`SelectionDesk.jsx` owns candidate selection and preview. No dialogue is preselected on a fresh visit; the analysis button is disabled until a selection is made. Selecting a row updates its preview without navigating away; the button opens the full transcript-and-criteria workspace. Pending dialogues have no invented score. Checklist edits create new versions while the selected historical evaluation retains its own rules.
-
-The source site `https://fbroker.kz/` was retried but returned a policy403, so exact site colours/assets were not verified. The interpretation is grounded in the provided photos; the type uses self-hosted Roboto rather than claiming an official brand font. See `design-qa.md` for the desktop verification record.
+The frontend contract test uses mocked model responses to verify the real request shape, visible server errors and applied results. It does not measure model accuracy. See [design verification](design-qa.md) for screenshots and checks.

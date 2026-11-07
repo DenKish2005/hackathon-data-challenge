@@ -91,7 +91,7 @@ try {
   await page
     .getByRole("button", { name: `Выбрать диалог ${base.id}`, exact: true })
     .click();
-  assert.equal(await page.locator(".rw-workspace").count(), 0);
+  assert.equal(await page.locator(".ca-analysis").count(), 0);
   assert.match(await page.locator(".desk-selected-score").innerText(), /81,88/);
   assert.equal(
     await page
@@ -117,16 +117,22 @@ try {
   await page
     .getByRole("button", { name: "Открыть аналитику", exact: true })
     .click();
-  await page.getByRole("heading", { name: base.topic, exact: true }).waitFor();
+  await page
+    .getByRole("heading", { name: "Анализ разговора", exact: true })
+    .waitFor();
+  assert.match(
+    await page.locator(".ca-heading").innerText(),
+    new RegExp(base.id),
+  );
   assert.ok(page.url().endsWith("#dialog/" + base.id));
   assert.match(
-    await page.locator(".rw-overall-score").getAttribute("aria-label"),
+    await page.locator(".ca-score-ring").getAttribute("aria-label"),
     /81,88/,
   );
   await page.getByRole("button", { name: "Реплика #m7", exact: true }).click();
   assert.ok(await page.locator(".message.highlighted").isVisible());
   await page.getByLabel("Поиск по переписке").fill("заявка");
-  assert.ok((await page.locator(".rw-message mark").count()) > 0);
+  assert.ok((await page.locator(".ca-message mark").count()) > 0);
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: "Отчёт", exact: true }).click();
   const exported = JSON.parse(
@@ -134,11 +140,16 @@ try {
   );
   assert.equal(exported.conversations.length, 1);
   assert.equal(exported.conversations[0].id, base.id);
+  assert.equal(await page.locator(".ca-criterion-row").count(), 8);
   await page
-    .getByRole("group", { name: "Фильтр критериев" })
-    .getByRole("button", { name: /Все/ })
+    .getByRole("button", {
+      name: "Критерий: Установление контакта",
+      exact: true,
+    })
     .click();
-  await page.getByRole("button", { name: "Оспорить", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Оспорить оценку", exact: true })
+    .click();
   assert.match(
     await page.locator(".appeal-context").innerText(),
     /Установление контакта/,
@@ -173,29 +184,27 @@ try {
     .click();
   assert.match(await page.locator(".desk-selected-score").innerText(), /69,38/);
   await page.getByRole("button", { name: "Загрузить диалоги" }).click();
-  await page
-    .getByLabel("Ответ API", { exact: true })
-    .fill(
-      JSON.stringify({
-        data: {
-          records: [
-            {
-              conversation_id: "import-smoke",
-              channel: "agent chat",
-              language: "RU",
-              transcript: [
-                {
-                  timestamp: "00:01",
-                  speaker: "client",
-                  text: "Здравствуйте!",
-                },
-              ],
-              audio_url: null,
-            },
-          ],
-        },
-      }),
-    );
+  await page.getByLabel("Ответ API", { exact: true }).fill(
+    JSON.stringify({
+      data: {
+        records: [
+          {
+            conversation_id: "import-smoke",
+            channel: "agent chat",
+            language: "RU",
+            transcript: [
+              {
+                timestamp: "00:01",
+                speaker: "client",
+                text: "Здравствуйте!",
+              },
+            ],
+            audio_url: null,
+          },
+        ],
+      },
+    }),
+  );
   await page
     .getByRole("button", { name: "Импортировать", exact: true })
     .click();
@@ -208,13 +217,14 @@ try {
     .getByRole("button", { name: "Открыть аналитику", exact: true })
     .click();
   assert.equal(
-    await page.locator(".rw-overall-score").getAttribute("aria-label"),
+    await page.locator(".ca-score-ring").getAttribute("aria-label"),
     "Итоговый балл ещё не рассчитан",
   );
   await page.reload();
   await page
-    .getByRole("heading", { name: "Импортированный диалог", exact: true })
+    .getByRole("heading", { name: "Анализ разговора", exact: true })
     .waitFor();
+  assert.match(await page.locator(".ca-heading").innerText(), /import-smoke/);
   await page
     .getByRole("navigation")
     .getByRole("button", { name: "Критерии оценки" })
