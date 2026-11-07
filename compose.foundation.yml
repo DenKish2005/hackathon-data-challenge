@@ -1,0 +1,15 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: src/cqa/infra/deployment/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/cqa-foundation.db
+      LLM_PROVIDER: mock
+    volumes:
+      - cqa-foundation:/data
+    restart: unless-stopped
+volumes:
+  cqa-foundation:

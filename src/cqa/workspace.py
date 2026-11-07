@@ -13,7 +13,10 @@ class WorkspaceConflict(ValueError):
 
 def default_checklist():
     path = Path(__file__).with_name("checklist.json")
-    return [Criterion.model_validate(c).model_dump() for c in json.loads(path.read_text())]
+    return [
+        Criterion.model_validate(c).model_dump()
+        for c in json.loads(path.read_text(encoding="utf-8"))
+    ]
 
 
 def read_workspace(store):

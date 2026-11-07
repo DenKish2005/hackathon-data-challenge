@@ -124,7 +124,7 @@ def test_cli_import_and_export_are_durable(tmp_path, monkeypatch):
     assert len(read_workspace(store)["data"]["dialogs"]) == 1
     output = tmp_path / "report.json"
     subprocess.run([sys.executable, "-m", "cqa", "export", str(output)], check=True)
-    assert json.loads(output.read_text())["conversations"][0]["score"] is None
+    assert json.loads(output.read_text(encoding="utf-8"))["conversations"][0]["score"] is None
     failed = subprocess.run([sys.executable, "-m", "cqa", "import", str(path)], check=False)
     assert failed.returncode == 1
     assert read_workspace(store)["revision"] == 1

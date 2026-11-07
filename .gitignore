@@ -11,6 +11,15 @@ htmlcov/
 .env.cqa
 .env.cqa.local
 .vercel/
+
+.env.*
+!.env.example
+!.env.cqa.example
+*.db
+*.sqlite3
+*.db-*
+*.sqlite3-*
+cqa_dev*.json
 graphify-out/
 .runtime/
 build/
