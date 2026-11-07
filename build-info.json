@@ -1,1 +1,7 @@
-{"source_commit":"4e402b5","source_branch":"feat/freedom-light-workspace","type":"interactive-frontend-preview"}
+{
+  "source_commit": "4e402b5",
+  "source_branch": "feat/freedom-light-workspace",
+  "type": "interactive-frontend-preview",
+  "deployment_requested_at": "2026-11-07T10:42:00.164838+00:00",
+  "deployment_reason": "Republish after enabling branch-based GitHub Pages"
+}
