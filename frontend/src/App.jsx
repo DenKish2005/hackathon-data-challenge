@@ -43,6 +43,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import ReviewWorkspace from "./ReviewWorkspace";
+import SelectionDesk from "./SelectionDesk";
 import {
   initialCriteria,
   conversations as demoConversations,
@@ -184,7 +185,8 @@ export default function App() {
     [mobile, setMobile] = useState(false),
     [period, setPeriod] = useState("Последние 7 оценок"),
     [sortKey, setSortKey] = useState("recent"),
-    [queuePage, setQueuePage] = useState(1);
+    [queuePage, setQueuePage] = useState(1),
+    [lastDialogId, setLastDialogId] = useState(null);
   useEffect(() => {
     localStorage.setItem("freedom-cqa-dialogs", JSON.stringify(dialogs));
   }, [dialogs]);
@@ -210,6 +212,7 @@ export default function App() {
   }
   function openDialog(dialog) {
     setSelected(dialog);
+    setLastDialogId(dialog.id);
     setPage("conversations");
     const route = "#dialog/" + encodeURIComponent(dialog.id);
     if (window.location.hash !== route)
@@ -388,10 +391,10 @@ export default function App() {
           }}
         >
           <span className="freedom-symbol" aria-hidden="true">
-            f<span>•</span>
+            <ShieldCheck size={27} />
           </span>
           <span className="freedom-wordmark">
-            freedom<span>BROKER</span>
+            FREEDOM<span>BROKER</span>
           </span>
         </a>
         <div className="workspace">
@@ -568,14 +571,14 @@ export default function App() {
                     {page === "overview"
                       ? "Обзор качества"
                       : page === "conversations"
-                        ? "Диалоги"
+                        ? "Рабочее место контроля качества"
                         : names[page]}
                   </h1>
                   <p>
                     {page === "overview"
                       ? "Вся картина клиентского сервиса. От первого сообщения до результата."
                       : page === "conversations"
-                        ? "Проверяйте оценки, находите нарушения и разбирайте спорные ответы."
+                        ? "Выберите диалог, проверьте оценку и найдите подтверждение в переписке."
                         : page === "criteria"
                           ? "Правила оценки, веса критериев и версии чек-листа."
                           : page === "agents"
@@ -631,6 +634,22 @@ export default function App() {
                   )}
                 </div>
               </div>
+              {page === "conversations" && (
+                <SelectionDesk
+                  dialogs={dialogs}
+                  initialCandidateId={lastDialogId}
+                  criteria={criteria}
+                  version={version}
+                  onOpen={openDialog}
+                  onEditCriterion={(criterion) =>
+                    setModal({ type: "criterion", criterion })
+                  }
+                  onChecklist={() => navigate("criteria")}
+                  onAppeal={(dialog, result) =>
+                    setModal({ type: "appeal", dialog, result })
+                  }
+                />
+              )}
               {page === "overview" && (
                 <>
                   <div className="toolbar overview-toolbar">
@@ -764,7 +783,7 @@ export default function App() {
                   </div>
                 </>
               )}
-              {(page === "overview" || page === "conversations") && (
+              {page === "overview" && (
                 <section className="panel table-panel">
                   {page === "conversations" && (
                     <div

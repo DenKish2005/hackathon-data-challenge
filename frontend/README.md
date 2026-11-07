@@ -4,7 +4,7 @@
 
 [Conversation selection screen](docs/freedom-selection.png)
 
-[Mobile preview](docs/freedom-mobile.png)
+[Desktop selection workspace](docs/freedom-selection.png)
 
 Responsive Russian-language frontend for the CQA hackathon. Built with React, Vite and Lucide icons. Changes in this PR are confined to `frontend/`.
 
@@ -88,7 +88,7 @@ Before merging, fetch main and merge it into your feature branch, resolve confli
 
 ## Freedom design refresh
 
-The UI uses a Freedom-inspired green, white and charcoal palette and a typographic Freedom Broker lockup. Manrope is self-hosted, including Cyrillic, so the interface does not depend on Google Fonts. Existing browser-local state migrates from the previous prototype's storage keys.
+The UI uses a Freedom-inspired light green-and-white palette and a typographic Freedom Broker lockup. Roboto is self-hosted, including Cyrillic, so the interface does not depend on Google Fonts. Existing browser-local state migrates from the previous prototype's storage keys.
 
 Charts and criterion summaries now derive from the current evaluations instead of fixed illustration values. The chart selector switches the latest seven evaluations/all evaluations, not an unsupported date filter. New checklist versions do not retroactively change historical results.
 
@@ -96,7 +96,7 @@ Production assets use relative paths, suitable for either a server root or a Git
 
 ## Primary flow: choose one dialogue
 
-The application now starts at **Диалоги**. Search or filter the list, then click a conversation or its **Аналитика** button. The per-dialogue screen shows its own score, operator, channel, critical flag, criterion profile and evidence-backed findings. It never substitutes the dataset average for the selected dialogue's score.
+The application starts at a desktop control desk based on the supplied sketch: checklist left, chat selection right, general statistics below, and a selected-dialogue preview. Select a conversation, then click **Открыть аналитику** for its full review. The per-dialogue screen shows its own score, operator, channel, critical flag, criterion profile and evidence-backed findings. It never substitutes the dataset average for the selected dialogue's score.
 
 The dropdown switches the entire analysis to another conversation. `#dialog/<id>` links survive page reload and browser back/forward. A pending imported dialogue has no fabricated score or findings. The **Отчёт** action exports only the selected dialogue and its associated appeals; the list's export includes the dataset. Aggregate statistics remain a separate secondary section.
 
@@ -110,9 +110,9 @@ The production build uses relative asset paths, and hash routes work at a reposi
 
 The supplied `https://fbroker.kz/statistics` reference could not be captured in this environment because outbound policy denied that destination. The flow and Freedom-inspired styling were verified on the local implementation, not against a captured copy of that page.
 
-## Dark review workspace
+## Review workspace
 
-The primary task remains **select a dialogue → verify its evaluation → inspect evidence → appeal when needed**. The UI now uses one dark token-based stylesheet (`src/styles.css`) and a dedicated `ReviewWorkspace` component. Old decorative analytics and overlapping theme stylesheets were removed.
+The primary task remains **select a dialogue → verify its evaluation → inspect evidence → appeal when needed**. The UI uses one token-based stylesheet (`src/styles.css`) and a dedicated `ReviewWorkspace` component. Old decorative analytics and overlapping theme stylesheets were removed.
 
 - Queue tabs expose all, review, pending and critical cases; search, language/channel filters, score sorting and ten-row pagination work together.
 - Returning through “К списку диалогов” preserves the queue query. Ctrl/Cmd+K focuses search; previous/next controls follow the filtered queue.
@@ -123,3 +123,11 @@ The primary task remains **select a dialogue → verify its evaluation → inspe
 - Agent implementation details are moved to a short methodology page; there are no simulated agent activity indicators or promotional panels.
 
 See [UX review and verification](docs/ux-review.md). This is still a browser-local prototype with demonstration evaluations; the redesign does not introduce a live scoring model or shared persistence.
+
+## Light desktop desk from supplied references
+
+The latest design follows the user's notebook wireframe and Freedom presentation photo. Those supplied images are the visual source: a light workspace, checklist and conversation selector side by side, dataset statistics beneath them, and the selected dialogue's results and appeal entry points below. This iteration targets desktop, not a mobile layout.
+
+`SelectionDesk.jsx` owns candidate selection and preview. No dialogue is preselected on a fresh visit; the analysis button is disabled until a selection is made. Selecting a row updates its preview without navigating away; the button opens the full transcript-and-criteria workspace. Pending dialogues have no invented score. Checklist edits create new versions while the selected historical evaluation retains its own rules.
+
+The source site `https://fbroker.kz/` was retried but returned a policy403, so exact site colours/assets were not verified. The interpretation is grounded in the provided photos; the type uses self-hosted Roboto rather than claiming an official brand font. See `design-qa.md` for the desktop verification record.
