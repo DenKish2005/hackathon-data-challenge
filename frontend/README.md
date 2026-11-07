@@ -1,125 +1,76 @@
-# Freedom Broker · Quality Intelligence
+# Freedom CQA — интерфейс
 
-![Analytics for one selected dialogue](docs/freedom-dialogue.png)
+Тёмный desktop workspace в цветах Freedom: выбрать один диалог, открыть аналитику,
+проверить оценку по восьми критериям и доказательства, прослушать звонок, оспорить
+конкретный критерий и сохранить решение проверяющего. Логотип хранится локально;
+[источник](public/freedom-logo-source.md). Roboto включает кириллицу и не требует CDN.
 
-[Conversation selection screen](docs/freedom-selection.png)
+## Полный запуск
 
-[Mobile preview](docs/freedom-mobile.png)
+Из корня репозитория, Python3.11+ и Node.js LTS:
 
-Responsive Russian-language frontend for the CQA hackathon. Built with React, Vite and Lucide icons. Changes in this PR are confined to `frontend/`.
+```bash
+python scripts/run-cqa.py
+```
 
-## Run
+Скрипт собирает frontend и запускает единый Foundation API на http://127.0.0.1:8000.
+Настройки: `.env.cqa.example` → `.env.cqa`. Для безопасного ввода подписанного адреса
+организаторов: `python scripts/run-cqa.py --configure-source`. Реальная модель требует
+запущенной Ollama; `LLM_PROVIDER=mock` явно включает тестовый режим без модели.
 
-Requires Node.js 20.19+ or 22.12+ (validated with Node 24).
+Разработка только интерфейса:
 
 ```bash
 cd frontend
 npm ci
 npm run dev
+# Vite проксирует /api в уже запущенный backend127.0.0.1:8000.
+npm run build
 ```
 
-Production: `npm run build`. Serve `dist/` using your web server, or use `npm run preview` for local verification.
+## Поведение
 
-## Working features
+- Синтетические демонстрационные диалоги обозначены; API/JSON импорт не выдаёт
+  готовых оценок. Новая запись ждёт реального задания.
+- Оценка создаёт устойчивое серверное задание и опрашивает статус; ошибка не
+  подменяется баллом. Mock и настоящий провайдер показываются раздельно.
+- Критерии динамические и версионируемые. История и апелляции связаны с исходной
+  оценкой и её правилами. N/A исключается из знаменателя; критический флаг отдельный.
+- Цитата ведёт к исходной реплике. Для отсутствия действия показывается проверенный
+  диапазон; предварительные результаты обозначены.
+- Телефонный проигрыватель использует серверный `/api/conversations/{id}/audio`,
+  который разрешает HTML-плеер из API в настоящий аудиофайл. Волна строится только
+  из декодированного звука; выдуманных раздельных дорожек нет.
+- Оспаривание работает и на обычном HTTP без `crypto.randomUUID`; двойная отправка
+  блокируется. SQLite сохраняет историю, а конфликты ревизии имеют отдельный статус.
+- При недоступном API сохраняется браузерная копия и понятный статус соединения.
+  В статическом standalone режиме это демонстрация, а не запущенный AI backend.
 
-- Dashboard, overview metrics, computed conversation and criterion charts.
-- Conversation list with search, language, channel and status filters.
-- Transcript next to per-criterion results; evidence links highlight the source message.
-- Eight initial checklist criteria from the provided PDF, including scales, N/A and separate critical-error flag.
-- Checklist editor and new criteria, with version increments. Existing results retain their original rules.
-- Appeal submission and human review; score recalculation retains original answers and score.
-- JSON import for the organizers' `data.records` response; imported conversations remain pending evaluation.
-- JSON export of checklist, conversations and appeals.
-- Responsive mobile navigation, accessible labelled forms, keyboard modal focus management.
+`SelectionDesk.jsx` — выбор; `ConversationAnalysis.jsx` — аналитика;
+`EvaluationPanel.jsx` — API/прогресс/история; `CallRecording.jsx` — аудио;
+`WorkspaceSync.jsx` — синхронизация; `App.jsx` — действия и формы.
+API-контракт и границы трёх участников: [архитектура](../docs/CQA_ARCHITECTURE.md).
 
-## Demo boundaries
-
-The UI starts with **synthetic demonstration conversations**, not the organizers' DEV dataset. Analytics charts are computed from the current demonstration evaluations. The Python CQA API now evaluates imported conversations through local Ollama, with a second critic pass and server-side scoring. Start the service using the root README. The standalone static site remains a UI demo. Imported conversations have no evaluation until an API request succeeds. No API keys or signed URLs belong in the frontend.
-
-State is saved in SQLite through the Python API, with a browser-local fallback in localStorage. This is convenient for a prototype, not shared server storage. Clear the site's browser storage to reset the demo. Store real conversations and decisions on your backend when connecting the product; review browser retention needs before importing confidential data.
-
-## Backend integration contract
-
-Coordinate any contract change with both the frontend and backend owners. Do not import Python model code into the frontend. The initial view models are in `src/data.js`:
-
-- Conversation: `id`, `customer`, `agent`, `channel` (`chat`/`call`), `language` (`RU`/`KZ`/`EN`), `topic`, `date`, `duration`, `status`, `messages`, `results`, `score`, `critical`, optional `audio_url`.
-- Message: `id`, `role` (`client`/`operator`/`bot`/`system`), `text`, original `time`.
-- Criterion: `id`, `title`, `description`, `weight`, `type` (`binary`/`scale`/`flag`), `scale`, `naAllowed`, `naCondition`.
-- CriterionResult: `criterionId`, `answer`, `reason`, `evidenceId`.
-- Existing evaluations may carry `checklistVersion` and `criteriaSnapshot`; resolve appeals against that snapshot, not newly edited rules.
-
-The current local Python service is implemented in `src/cqa/`; UI integration lives in `EvaluationPanel.jsx` and `WorkspaceSync.jsx`. Further backend integrations can use a dedicated client module in `frontend/src/`. Suggested endpoints: conversations, checklist versions, evaluation jobs/results, appeals and review decisions. Backend must preserve full immutable evaluation history, validate all edits and recalculate independently of the browser. For missing actions or N/A, extend the response contract with checked ranges and explicit applicability explanations. Calls need audio-relative timing before implementing seek-to-evidence; the current UI links to original audio if provided.
-
-Scoring normalizes numeric scales, excludes allowed N/A weights, rounds the final result to two decimals and treats critical errors separately. Missing results return an incomplete score, not zero. The frontend calculator is for the prototype and should be verified against the backend implementation.
-
-## Checks
+## Проверки
 
 ```bash
 npm run build
-# Start npm run dev in another terminal first:
-npm run test:smoke
+npm run preview -- --port 4173
+# В другом терминале:
+BASE_URL=http://127.0.0.1:4173 node tests/smoke.mjs
+BASE_URL=http://127.0.0.1:4173 node tests/evaluation.mjs
+BASE_URL=http://127.0.0.1:4173 node tests/reliability.mjs
+node --test ../tests/vercel_proxy.test.cjs
 ```
 
-The smoke test uses installed Chromium at `/usr/bin/chromium`. Set `CHROMIUM_PATH` and `BASE_URL` for other environments. It checks scoring, search/filters, evidence navigation, appeal review, checklist persistence, JSON import, modal keyboard dismissal and mobile overflow.
+Браузерные сценарии используют Chromium (`CHROMIUM_PATH`, по умолчанию
+`/usr/bin/chromium`). Контрактные ответы и аудио в этих тестах синтетические;
+это не измерение качества LLM. Реальную связку с изолированной SQLite проверяет
+отдельный `tests/backend-flow.mjs`.
 
-## Three-person Git workflow
+## Размещение
 
-| Owner                    | Files                                                                                    | Suggested branch    |
-| ------------------------ | ---------------------------------------------------------------------------------------- | ------------------- |
-| Frontend                 | `frontend/**`                                                                            | `feat/cqa-frontend` |
-| Backend / infrastructure | backend implementation and deployment configuration, excluding `frontend/**`             | `feat/cqa-backend`  |
-| AI / evaluation          | evaluator, prompts, criteria configuration and quality fixtures, excluding `frontend/**` | `feat/cqa-ai`       |
-
-Agree on exact backend/AI paths before creating them. The existing `src/tokenops_guard/` package is separate from this new frontend and is unchanged by this PR.
-
-Each person uses their own checkout and branch. Avoid concurrent checkout of different branches inside one shared directory. Edit only your owned paths; coordinate shared API contracts, root README, CI and Compose files before changing them.
-
-```bash
-git fetch origin
-git switch -c feat/your-task origin/main
-# Implement and test your task.
-git add path/to/your/files
-git commit -m "Describe the implemented feature"
-git push -u origin feat/your-task
-# Open a PR into main and request a teammate's review.
-```
-
-Before merging, fetch main and merge it into your feature branch, resolve conflicts in your own files and rerun affected checks. Use one PR per coherent task. Do not force-push a shared branch. Merge PRs one at a time; cross-directory integration happens through the agreed API contract.
-
-## Freedom design refresh
-
-The UI uses a Freedom-inspired green, white and charcoal palette and a typographic Freedom Broker lockup. Manrope is self-hosted, including Cyrillic, so the interface does not depend on Google Fonts. Existing browser-local state migrates from the previous prototype's storage keys.
-
-Charts and criterion summaries now derive from the current evaluations instead of fixed illustration values. The chart selector switches the latest seven evaluations/all evaluations, not an unsupported date filter. New checklist versions do not retroactively change historical results.
-
-Production assets use relative paths, suitable for either a server root or a GitHub Pages repository subpath. Public deployment still needs an explicitly selected hosting target and access.
-
-## Primary flow: choose one dialogue
-
-The application now starts at **Диалоги**. Search or filter the list, then click a conversation or its **Аналитика** button. The per-dialogue screen shows its own score, operator, channel, critical flag, criterion profile and evidence-backed findings. It never substitutes the dataset average for the selected dialogue's score.
-
-The dropdown switches the entire analysis to another conversation. `#dialog/<id>` links survive page reload and browser back/forward. A pending imported dialogue has no fabricated score or findings. The **Отчёт** action exports only the selected dialogue and its associated appeals; the list's export includes the dataset. Aggregate statistics remain a separate secondary section.
-
-## GitHub Pages publishing
-
-The repository workflow `.github/workflows/frontend-pages.yml` builds and publishes the frontend on pushes to `main` affecting the frontend, and supports manual runs. It uses official GitHub Pages actions and the workflow-provided token; no personal token or application secret is embedded.
-
-A repository administrator must enable **Settings → Pages → Build and deployment → Source: GitHub Actions** once. If an earlier run failed because Pages was disabled, rerun **Publish Freedom CQA to GitHub Pages** after saving that setting. The expected project address is `https://denkish2005.github.io/hackathon-data-challenge/`; treat it as published only after the deployment job succeeds.
-
-The production build uses relative asset paths, and hash routes work at a repository subpath. No server-side API or model is deployed by this workflow: it publishes the frontend prototype.
-
-The supplied `https://fbroker.kz/statistics` reference could not be captured in this environment because outbound policy denied that destination. The flow and Freedom-inspired styling were verified on the local implementation, not against a captured copy of that page.
-
-## Dark review workspace
-
-The primary task remains **select a dialogue → verify its evaluation → inspect evidence → appeal when needed**. The UI now uses one dark token-based stylesheet (`src/styles.css`) and a dedicated `ReviewWorkspace` component. Old decorative analytics and overlapping theme stylesheets were removed.
-
-- Queue tabs expose all, review, pending and critical cases; search, language/channel filters, score sorting and ten-row pagination work together.
-- Returning through “К списку диалогов” preserves the queue query. Ctrl/Cmd+K focuses search; previous/next controls follow the filtered queue.
-- The desktop review is one compact score strip and two independently scrolling panes. One criterion expands at a time, with its reason, calculated contribution and a quote from the actual transcript.
-- Transcript search marks matches and supports Enter/Shift+Enter navigation. Evidence links highlight and focus their source message.
-- Mobile uses cards with visible score/status and separate evaluation/transcript tabs; evidence navigation switches panes automatically.
-- Appeals and decisions include the original answer, explanation and source quote. The review history uses saved appeals rather than generated events.
-- Agent implementation details are moved to a short methodology page; there are no simulated agent activity indicators or promotional panels.
-
-See [UX review and verification](docs/ux-review.md). This is still a browser-local prototype with demonstration evaluations; the redesign does not introduce a live scoring model or shared persistence.
+[Vercel](../docs/VERCEL_DEPLOY.md): Root Directory — корень репозитория,
+сборка `npm --prefix frontend run build`, выход `frontend/dist`. Python, постоянная
+база и модель работают на отдельном HTTPS backend; без него proxy возвращает503.
+Ключи, signed URL и реальные записи не включаются в Git или клиентский bundle.

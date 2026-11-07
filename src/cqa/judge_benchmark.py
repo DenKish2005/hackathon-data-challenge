@@ -23,9 +23,24 @@ from cqa.service import EvaluationRequest, score
 
 def private_path(value):
     path = Path(value).resolve()
-    if any((parent / ".git").exists() for parent in [path, *path.parents]):
+    if any(git_marker(parent) for parent in [path, *path.parents]):
         raise ValueError("Benchmark inputs and outputs must be outside all Git worktrees")
     return path
+
+
+def git_marker(parent):
+    marker = parent / ".git"
+    if marker.is_file():
+        return True  # Linked worktrees use a gitdir file.
+    if marker.is_dir():
+        try:
+            # Managed sandboxes expose empty, read-only .git placeholders at
+            # writable roots. They are not repositories. A real metadata
+            # directory contains HEAD/objects; reject any nonempty marker.
+            return any(marker.iterdir())
+        except OSError:
+            return True  # An unreadable potential repository remains private.
+    return False
 
 
 def read_private(value):

@@ -72,9 +72,19 @@ class Settings:
     critic_enabled: bool = field(
         default_factory=lambda: os.getenv("CQA_ENABLE_CRITIC", "true") == "true"
     )
+    strategy: str = field(default_factory=lambda: os.getenv("CQA_STRATEGY", "two_pass"))
+    agent_concurrency: int = field(
+        default_factory=lambda: int(os.getenv("CQA_AGENT_CONCURRENCY", "1"))
+    )
     prompt_version: str = "foundation-v1"
 
     def __post_init__(self):
+        if self.strategy not in ("two_pass", "multi_agent"):
+            raise ValueError("CQA_STRATEGY must be two_pass or multi_agent")
+        if not 1 <= self.agent_concurrency <= 16:
+            raise ValueError("CQA_AGENT_CONCURRENCY must be between 1 and 16")
+        if self.strategy == "multi_agent" and not self.critic_enabled:
+            raise ValueError("Multi-agent evaluation requires the final critic")
         if not 1 <= self.concurrency <= 16 or self.timeout <= 0:
             raise ValueError("Invalid CQA_WORKERS or CQA_JOB_TIMEOUT")
         if (

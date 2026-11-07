@@ -8,8 +8,13 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+.env.cqa
+.env.cqa.local
+.vercel/
+
 .env.*
 !.env.example
+!.env.cqa.example
 *.db
 *.sqlite3
 *.db-*

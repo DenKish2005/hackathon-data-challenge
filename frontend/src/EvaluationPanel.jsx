@@ -1,4 +1,58 @@
 import React, { useEffect, useRef, useState } from "react";
+import { isMockEvaluation, needsReview } from "./evaluation-state";
+
+async function requestJson(url, options = {}, timeoutMs = 20000) {
+  const response = await fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  return {
+    response,
+    data: await readResponse(response, "Сервис не вернул корректную оценку"),
+  };
+}
+
+async function evaluate(payload, onProgress) {
+  const { response, data } = await requestJson("/api/evaluate?async_job=true", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  // Older installations return the completed assessment directly.
+  if (response.status !== 202) return data;
+  if (!data.jobId) throw Error("Сервис не вернул номер задания");
+  const deadline = Date.now() + 30 * 60 * 1000;
+  let failures = 0;
+  while (Date.now() < deadline) {
+    if (onProgress(data.jobId) === false)
+      throw new DOMException("Отменено", "AbortError");
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    let job;
+    try {
+      ({ data: job } = await requestJson(
+        `/api/workspace-evaluations/${encodeURIComponent(data.jobId)}`,
+      ));
+      failures = 0;
+    } catch (error) {
+      if (++failures < 4) continue;
+      throw Error(
+        `Не удалось получить результат задания ${data.jobId}. Оно остаётся на сервере; проверьте историю или повторите оценку.`,
+      );
+    }
+    if (job.status === "completed" && job.result)
+      return { ...job.result, cached: data.cached ?? job.result.cached };
+    if (job.status === "failed")
+      throw Error(
+        typeof job.error === "string"
+          ? job.error
+          : job.error?.message ||
+              "Не удалось выполнить анализ. Повторите оценку.",
+      );
+  }
+  throw Error(
+    `Задание ${data.jobId} ещё выполняется. Проверьте историю позже.`,
+  );
+}
 
 async function readResponse(response, fallback) {
   let data;
@@ -87,10 +141,8 @@ export default function EvaluationPanel({
           `${i + 1}/${batch.dialogs.length} · ${d.id} — анализ и проверка…`,
         );
         try {
-          const response = await fetch("/api/evaluate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+          const result = await evaluate(
+            {
               conversation_id: d.id,
               language: d.language,
               messages: d.messages.map(({ id, role, text, time }) => ({
@@ -102,17 +154,20 @@ export default function EvaluationPanel({
               criteria: batch.criteria,
               version: batch.version,
               force: batch.force,
-            }),
-          });
-          const result = await readResponse(
-            response,
-            "Сервис не вернул корректную оценку",
+            },
+            (jobId) =>
+              mounted.current &&
+              setProgress(
+                `${i + 1}/${batch.dialogs.length} · ${d.id} — анализ в очереди, задание ${jobId}`,
+              ),
           );
           // Preserve the original ID if the user switches to another dialogue while waiting.
           onResultRef.current(d.id, result);
           completed++;
         } catch (e) {
-          failures.push(`${d.id}: ${e.message}`);
+          failures.push(
+            `${d.id}: ${e.name === "TimeoutError" ? "Сервис не ответил вовремя. Проверьте историю перед повторным запуском." : e.message}`,
+          );
         }
       }
     } finally {
@@ -158,22 +213,30 @@ export default function EvaluationPanel({
   return (
     <section className="ai-evaluation" aria-label="AI-оценка">
       <div>
-        <strong>Оценка новых диалогов · Ollama</strong>
+        <strong>Оценка новых диалогов</strong>
         <p>
           {health === null
             ? "Проверяется доступность модели…"
-            : health.status === "ready"
-              ? `Модель ${health.model} загружена; готовность генерации проверяется при оценке`
-              : health.status === "offline"
-                ? "Сервис оценки недоступен. Проверьте запуск Python API."
-                : "Модель не загружена: запустите Ollama и загрузите модель по инструкции README"}
+            : health.is_mock === true || health.status === "mock"
+              ? "Тестовый режим: модель не вызывается. Результаты проверяют работу системы, а не качество диалогов."
+              : health.status === "configured"
+                ? `Провайдер ${health.provider || "AI"} · модель ${health.model}. Соединение проверяется при оценке.`
+                : health.status === "ready"
+                  ? `Модель ${health.model} загружена; готовность генерации проверяется при оценке`
+                  : health.status === "offline"
+                    ? "Сервис оценки недоступен. Проверьте запуск Python API."
+                    : "Модель не загружена: запустите Ollama и загрузите модель по инструкции README"}
         </p>
         <p>
           {busy
             ? `Выполняется оценка по снимку чек-листа v${runningVersion}.`
             : `Применяется текущий чек-лист v${version}.`}{" "}
-          Два прохода, проверяемые цитаты, расчёт на сервере. Синтетические
-          примеры помечены отдельно.
+          {health?.is_mock === true || health?.status === "mock"
+            ? "Синтетический прогон для проверки очереди и интерфейса."
+            : health?.strategy === "multi_agent"
+              ? "Специалист по каждому критерию и финальный критик."
+              : "Оценивание по критериям и проверка доказательств."}{" "}
+          Итог рассчитывается на сервере.
         </p>
       </div>
       <button className="button" onClick={refreshHealth}>
@@ -214,13 +277,21 @@ export default function EvaluationPanel({
       {history?.map((h) => (
         <details key={h.evaluationId}>
           <summary>
-            {h.createdAt} · {h.model} · v{h.checklistVersion} · {h.score ?? "—"}
+            {h.createdAt} · {h.model} ·{" "}
+            {isMockEvaluation(h) ? "Тест без AI · " : ""}
+            {needsReview(h) ? "Предварительная · " : ""}v{h.checklistVersion} ·{" "}
+            {h.score ?? "—"}
             /100
           </summary>
           <p>{h.summary}</p>
           {h.results.map((r) => (
             <p key={r.criterionId}>
-              #{r.criterionId} · {r.answer} — {r.reason} «{r.quote}»
+              #{r.criterionId} · {r.answer} — {r.reason}
+              {r.quote
+                ? ` «${r.quote}»`
+                : r.evidenceBasis === "absence"
+                  ? " · Действие не найдено в диалоге"
+                  : ""}
             </p>
           ))}
         </details>

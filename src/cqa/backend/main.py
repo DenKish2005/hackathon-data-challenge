@@ -100,7 +100,15 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
     db = Database(settings.database_url)
     if pipeline is None:
         provider = build_provider(settings)
-        evaluator = MockEvaluator() if provider.is_mock else ProviderEvaluator(provider)
+        evaluator = (
+            MockEvaluator()
+            if provider.is_mock
+            else ProviderEvaluator(
+                provider,
+                strategy=settings.strategy,
+                agent_concurrency=settings.agent_concurrency,
+            )
+        )
         pipeline = Pipeline(
             evaluator,
             critic=ProviderCritic(evaluator)
@@ -323,7 +331,9 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
             ).all()
 
     from cqa.backend.compat import install_compat
+    from cqa.backend.services.audio_recording import install_audio
 
+    install_audio(app, db, transport)
     install_compat(app, db, pipeline, settings, transport)
     return app
 

@@ -260,6 +260,7 @@ def test_workspace_ui_import_and_explicit_saved_version(tmp_path):
         request["checklist_id"] = "official"
         assert client.post("/api/evaluate", json=request).status_code == 200
         workspace["data"]["dialogs"][0]["id"] = "uploaded-in-browser"
+        workspace["data"]["dialogs"][0]["source"] = "organizer"
         assert client.put("/api/workspace", json=workspace).status_code == 200
         assert client.get("/api/conversations/uploaded-in-browser").status_code == 200
         assert (

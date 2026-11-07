@@ -75,11 +75,31 @@ def normalize_records(payload, criteria, version, existing=()):
             raise ValueError(f"Повторяющийся диалог: {cid}")
         if r.get("channel") not in ("agent chat", "voice call"):
             raise ValueError("Канал должен быть agent chat или voice call")
-        if r.get("audio_url") and urlsplit(r["audio_url"]).scheme != "https":
-            raise ValueError("Для аудио требуется HTTPS")
+        audio = r.get("audio_url")
+        if audio:
+            if not isinstance(audio, str):
+                raise ValueError("Ссылка на аудио должна быть строкой")
+            try:
+                audio_parts = urlsplit(audio)
+                if (
+                    audio_parts.scheme != "https"
+                    or not audio_parts.hostname
+                    or audio_parts.username is not None
+                    or audio_parts.password is not None
+                ):
+                    raise ValueError("Для аудио требуется корректная HTTPS-ссылка")
+                _ = audio_parts.port
+            except ValueError as exc:
+                raise ValueError("Для аудио требуется корректная HTTPS-ссылка") from exc
         transcript = r.get("transcript")
-        if not isinstance(transcript, list) or not all(isinstance(m, dict) for m in transcript):
-            raise ValueError("transcript должен быть массивом реплик")
+        if (
+            not isinstance(transcript, list)
+            or not transcript
+            or not all(isinstance(m, dict) for m in transcript)
+        ):
+            raise ValueError(
+                "Нужен непустой transcript. Для телефонного разговора нужна расшифровка."
+            )
         request = EvaluationRequest(
             conversation_id=cid,
             language=r.get("language"),
@@ -115,7 +135,7 @@ def normalize_records(payload, criteria, version, existing=()):
                 "results": [],
                 "source": "import",
                 "messages": [m.model_dump() for m in request.messages],
-                "audio_url": r.get("audio_url"),
+                "audio_url": audio or None,
                 **({"originalRecord": copy.deepcopy(r)} if changes else {}),
             }
         )

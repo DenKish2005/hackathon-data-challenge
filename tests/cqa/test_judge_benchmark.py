@@ -124,6 +124,22 @@ def test_repo_paths_and_embedded_labels_are_rejected(tmp_path):
         load_cases(path)
 
 
+def test_empty_sandbox_marker_is_not_a_repository_but_git_metadata_is(tmp_path):
+    marker = tmp_path / ".git"
+    marker.mkdir()
+    destination = tmp_path / "private" / "report.json"
+    assert private_path(destination) == destination
+    (marker / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="outside"):
+        private_path(destination)
+
+
+def test_linked_worktree_marker_still_protects_private_benchmark_paths(tmp_path):
+    (tmp_path / ".git").write_text("gitdir: /private/git/worktrees/test\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="outside"):
+        private_path(tmp_path / "cases.json")
+
+
 async def test_live_driver_never_exceeds_generation_budget(tmp_path, monkeypatch):
     from cqa.infra.llm.base import GeneratedJSON
     from cqa.infra.llm.ollama import OllamaProvider

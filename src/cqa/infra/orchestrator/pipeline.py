@@ -8,6 +8,7 @@ from typing import Protocol
 
 from pydantic import Field, StrictFloat, StrictStr
 
+from cqa import criterion_agents
 from cqa.backend.schemas import ChecklistView, ConversationDetail, Schema
 from cqa.infra.llm.openai_compatible import OpenAICompatibleProvider
 from cqa.normalization import NORMALIZATION_VERSION
@@ -151,7 +152,10 @@ class MockEvaluator:
 class ProviderEvaluator:
     name = "ProviderEvaluator"
 
-    def __init__(self, provider):
+    def __init__(self, provider, *, strategy="two_pass", agent_concurrency=1):
+        if strategy not in ("two_pass", "multi_agent") or not 1 <= agent_concurrency <= 16:
+            raise ValueError("Invalid evaluator strategy or agent concurrency")
+        self.strategy, self.agent_concurrency = strategy, agent_concurrency
         self.provider = provider
         self.model = provider.model
         self.is_mock = provider.is_mock
@@ -160,7 +164,11 @@ class ProviderEvaluator:
         return {
             **self.provider.configuration(),
             "evaluator": self.name,
-            "adapter_version": 5,
+            "adapter_version": 6,
+            "strategy": self.strategy,
+            "specialists": criterion_agents.prompt_signature()
+            if self.strategy == "multi_agent"
+            else None,
             "rules": RULES,
             "schema": Analysis.model_json_schema(),
             "prompt_version": PROMPT_VERSION,
@@ -219,48 +227,86 @@ class ProviderEvaluator:
             previous_analysis = translate_analysis_ids(
                 Analysis.model_validate(previous.metadata["analysis"]), aliases
             )
-        provider_calls = []
 
-        async def generate(messages, *, schema):
-            if isinstance(self.provider, OpenAICompatibleProvider):
-                # JSON-object mode needs the active schema in every full/focused prompt.
-                messages = [dict(m) for m in messages]
-                messages[0]["content"] += "\nReturn JSON using this schema:\n" + json.dumps(
-                    schema, ensure_ascii=False
+        async def run_phase(focused, focused_messages, phase, previous_analysis=None):
+            provider_calls = []
+
+            async def generate(messages, *, schema):
+                if isinstance(self.provider, OpenAICompatibleProvider):
+                    messages = [dict(m) for m in messages]
+                    messages[0]["content"] += "\nReturn JSON using this schema:\n" + json.dumps(
+                        schema, ensure_ascii=False
+                    )
+                generated = await self.provider.generate(messages, schema)
+                metadata = getattr(generated, "metadata", {})
+                provider_calls.append(metadata)
+                usage = metadata.get("usage", {})
+                return {
+                    "message": {"content": json.dumps(generated, ensure_ascii=False)},
+                    "model": metadata.get("model", self.model),
+                    "prompt_eval_count": usage.get("input_tokens"),
+                    "eval_count": usage.get("output_tokens"),
+                }
+
+            phase_calls = []
+            analysis = (
+                await review_analysis(
+                    focused,
+                    previous_analysis,
+                    phase_calls,
+                    generate,
+                    prompt_messages=focused_messages,
                 )
-            generated = await self.provider.generate(messages, schema)
-            metadata = getattr(generated, "metadata", {})
-            provider_calls.append(metadata)
-            usage = metadata.get("usage", {})
-            return {
-                "message": {"content": json.dumps(generated, ensure_ascii=False)},
-                "model": metadata.get("model", self.model),
-                "prompt_eval_count": usage.get("input_tokens"),
-                "eval_count": usage.get("output_tokens"),
-            }
-
-        phase_calls = []
-        analysis = (
-            await review_analysis(
-                request, previous_analysis, phase_calls, generate, prompt_messages=messages
+                if previous_analysis is not None
+                else await analyze_phase(focused, focused_messages, phase_calls, phase, generate)
             )
-            if previous_analysis is not None
-            else await analyze_phase(request, messages, phase_calls, "evaluate", generate)
-        )
-        # First validate against the actual local sources, then restore canonical IDs.
-        # Mapping is bijective; text, actor roles and quotation spans are never rewritten.
+            return analysis, [
+                {**metadata, **phase}
+                for metadata, phase in zip(provider_calls, phase_calls, strict=True)
+            ]
+
+        agent_runs = previous.metadata.get("agentRuns", []) if previous else []
+        if self.strategy == "multi_agent" and previous is None:
+
+            async def specialist(focused, focused_messages):
+                payload = json.loads(focused_messages[1]["content"])
+                payload["evaluation"].update(
+                    channel=conversation.channel,
+                    checklist_id=checklist.checklist_id,
+                    sections=checklist.sections,
+                )
+                focused_messages[1]["content"] = json.dumps(payload, ensure_ascii=False)
+                return await run_phase(focused, focused_messages, "specialist")
+
+            analysis, agent_runs = await criterion_agents.run_specialists(
+                request, specialist, self.agent_concurrency
+            )
+            calls = [call for run in agent_runs for call in run["calls"]]
+        else:
+            analysis, phase_calls = await run_phase(
+                request, messages, "critic" if previous else "evaluate", previous_analysis
+            )
+            calls = [*(previous.metadata.get("calls", []) if previous else []), *phase_calls]
+            if previous and self.strategy == "multi_agent":
+                agent_runs = [
+                    *agent_runs,
+                    {
+                        "role": "critic",
+                        "criterionIds": list(
+                            dict.fromkeys(
+                                cid for call in phase_calls for cid in call["criterionIds"]
+                            )
+                        ),
+                        "calls": phase_calls,
+                    },
+                ]
+        # Validate model-local aliases, then restore immutable canonical source IDs.
+        # This also validates the complete combined specialist applicability inventory.
         validate_analysis(request, analysis)
         analysis = translate_analysis_ids(analysis, sources)
         validate_analysis(canonical, analysis)
         if previous_analysis is not None:
             previous_analysis = translate_analysis_ids(previous_analysis, sources)
-        calls = [
-            *(previous.metadata.get("calls", []) if previous else []),
-            *[
-                {**metadata, **phase}
-                for metadata, phase in zip(provider_calls, phase_calls, strict=True)
-            ],
-        ]
         return EvaluationResult(
             is_mock=self.is_mock,
             findings=[
@@ -283,11 +329,16 @@ class ProviderEvaluator:
             ],
             metadata={
                 "summary": analysis.summary,
+                "strategy": self.strategy,
+                "agentRuns": agent_runs,
+                "agentPromptVersion": criterion_agents.PROMPT_VERSION
+                if self.strategy == "multi_agent"
+                else None,
                 "quotes": {f.criterionId: f.quote for f in analysis.results},
                 "analysis": analysis.model_dump(mode="json"),
                 "semanticValidation": {
                     "explicitApplicability": bool(analysis.applicability),
-                    "reviewTargets": review_targets(request, previous_analysis)
+                    "reviewTargets": review_targets(canonical, previous_analysis)
                     if previous_analysis is not None
                     else {},
                     "expertAccuracyGuaranteed": False,

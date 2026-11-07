@@ -6,6 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from sqlalchemy import func, select
@@ -451,9 +452,13 @@ def save_workspace(db, pipeline, request):
             if len(dialogs) > 1000 or len({d["id"] for d in dialogs}) != len(dialogs):
                 raise ValueError("Invalid dialogs")
             for dialog in dialogs:
-                if dialog.get("source") in ("import", "ollama", "mock") or session.get(
-                    Conversation, dialog["id"]
-                ):
+                if dialog.get("source") in (
+                    "import",
+                    "organizer",
+                    "ai",
+                    "ollama",
+                    "mock",
+                ) or session.get(Conversation, dialog["id"]):
                     import_dialog(db, session, dialog)
                     selected_evaluation(session, dialog)
             by_id = {d["id"]: d for d in dialogs}
@@ -500,7 +505,7 @@ def install_compat(app, db, pipeline, settings, transport=None):
     def put_workspace(request: WorkspaceRequest):
         return save_workspace(db, pipeline, request)
 
-    @app.get("/api/history/{conversation_id}")
+    @app.get("/api/history/{conversation_id:path}")
     def history(conversation_id: str):
         with db.sessions() as session:
             return [
@@ -518,8 +523,26 @@ def install_compat(app, db, pipeline, settings, transport=None):
         import_dataset(db, envelope)
         return envelope.model_dump(mode="json")
 
+    @app.get("/api/workspace-evaluations/{job_id}")
+    def workspace_evaluation(job_id: str):
+        """Poll durable work without keeping a serverless proxy request open."""
+        with db.sessions() as session:
+            job = session.get(EvaluationJob, job_id)
+            if job is None:
+                raise LookupError()
+            view = {"jobId": job.job_id, "status": job.status}
+            if job.status == "failed":
+                # Workers persist only redacted, actionable error messages.
+                view["error"] = job.error_message or "Evaluation failed"
+            elif job.status == "completed":
+                row = session.scalar(select(Evaluation).where(Evaluation.job_id == job_id))
+                if row is None:
+                    raise HTTPException(503, "Evaluation result is temporarily unavailable")
+                view["result"] = evaluation_view(session, row, reviewed=True)
+            return view
+
     @app.post("/api/evaluate")
-    async def evaluate(request: CompatibleEvaluationRequest):
+    async def evaluate(request: CompatibleEvaluationRequest, async_job: bool = False):
         with db.sessions.begin() as session:
             if db.engine.dialect.name == "sqlite":
                 session.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -554,6 +577,12 @@ def install_compat(app, db, pipeline, settings, transport=None):
             ),
         )
         cached = job.status == "completed"
+        if async_job:
+            return JSONResponse(
+                status_code=202,
+                content={"jobId": job.job_id, "status": job.status, "cached": cached},
+                headers={"Location": f"/api/workspace-evaluations/{job.job_id}"},
+            )
         # Only the managed worker executes jobs. Disconnect/timeout does not cancel durable work.
         try:
             async with asyncio.timeout(settings.timeout + 5):

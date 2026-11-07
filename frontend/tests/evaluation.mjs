@@ -1,6 +1,7 @@
 // Browser/API contract test. Model output is explicitly mocked, not an accuracy measurement.
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
+import { conversations } from "../src/data.js";
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
   args: ["--no-sandbox"],
@@ -11,16 +12,43 @@ try {
     route.fulfill({ json: { revision: 0, data: null } }),
   );
   await page.route("**/api/health", (route) =>
-    route.fulfill({ json: { status: "ready", model: "test-contract" } }),
+    route.fulfill({
+      json: {
+        status: "configured",
+        provider: "openai_compatible",
+        model: "test-contract",
+        is_mock: false,
+      },
+    }),
   );
-  await page.route("**/api/evaluate", (route) =>
+  await page.route("**/api/evaluate*", (route) =>
     route.fulfill({
       status: 503,
       json: { detail: "Модель недоступна — тест обработки ошибки" },
     }),
   );
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:8000");
-  await page.locator("tbody .dialog-button").first().click();
+  await page.locator(".desk-chat-row").first().click();
+  await page
+    .getByRole("button", { name: "Открыть аналитику", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Анализ разговора", exact: true })
+    .waitFor();
+  // Keep an appeal tied to the fixture's original evaluation before replacing it.
+  await page
+    .getByRole("button", { name: "Оспорить оценку", exact: true })
+    .click();
+  await page
+    .getByLabel("Причина апелляции")
+    .fill("Проверить исходный результат до нового запуска модели.");
+  await page
+    .getByRole("button", { name: "Отправить на пересмотр", exact: true })
+    .click();
+  await page
+    .getByText("Оценивание и история запусков", { exact: true })
+    .click();
+  await page.getByText(/Провайдер openai_compatible/).waitFor();
   await page
     .getByRole("button", { name: "Оценить диалог", exact: true })
     .click();
@@ -28,38 +56,60 @@ try {
     .getByRole("alert")
     .filter({ hasText: "Модель недоступна" })
     .waitFor();
-  await page.unroute("**/api/evaluate");
+  await page.unroute("**/api/evaluate*");
   let payload;
-  await page.route("**/api/evaluate", async (route) => {
+  let successfulResponse;
+  let polls = 0;
+  await page.route("**/api/workspace-evaluations/test-job", (route) => {
+    polls++;
+    return route.fulfill({
+      json:
+        polls === 1
+          ? { jobId: "test-job", status: "running" }
+          : {
+              jobId: "test-job",
+              status: "completed",
+              result: successfulResponse,
+            },
+    });
+  });
+  await page.route("**/api/evaluate*", async (route) => {
+    assert.equal(
+      new URL(route.request().url()).searchParams.get("async_job"),
+      "true",
+    );
     payload = route.request().postDataJSON();
     const m = payload.messages[0];
+    successfulResponse = {
+      evaluationId: "test-1",
+      model: "test-contract",
+      is_mock: false,
+      passes: 2,
+      tokens: 100,
+      checklistVersion: payload.version,
+      criteriaSnapshot: payload.criteria,
+      score: 100,
+      critical: false,
+      results: payload.criteria.map((c) => ({
+        criterionId: c.id,
+        answer:
+          c.type === "flag"
+            ? "Нет"
+            : c.naAllowed
+              ? "N/A"
+              : c.type === "scale"
+                ? Math.max(...c.scale)
+                : "Да",
+        reason: "Контрактный тест интерфейса, не оценка модели",
+        evidenceId: m.id,
+        quote: m.text,
+        checkedMessageIds: [m.id],
+        confidence: 0.8,
+      })),
+    };
     await route.fulfill({
-      json: {
-        evaluationId: "test-1",
-        model: "test-contract",
-        passes: 2,
-        tokens: 100,
-        checklistVersion: payload.version,
-        criteriaSnapshot: payload.criteria,
-        score: 100,
-        critical: false,
-        results: payload.criteria.map((c) => ({
-          criterionId: c.id,
-          answer:
-            c.type === "flag"
-              ? "Нет"
-              : c.naAllowed
-                ? "N/A"
-                : c.type === "scale"
-                  ? Math.max(...c.scale)
-                  : "Да",
-          reason: "Контрактный тест интерфейса, не оценка модели",
-          evidenceId: m.id,
-          quote: m.text,
-          checkedMessageIds: [m.id],
-          confidence: 0.8,
-        })),
-      },
+      status: 202,
+      json: { jobId: "test-job", status: "queued", cached: false },
     });
   });
   await page
@@ -69,18 +119,56 @@ try {
   assert.equal(payload.criteria.length, 8);
   assert.ok(payload.messages.some((m) => m.role === "operator"));
   assert.equal(payload.force, false);
+  assert.equal(
+    polls,
+    2,
+    "Async jobs must be polled through running to completion",
+  );
   assert.equal(await page.getByRole("alert").count(), 0);
-  // Switching the selected dialogue must not attach an in-flight result to it.
+  // An appeal from an earlier run must never overwrite the newly returned result.
   const firstId = payload.conversation_id;
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Апелляции" })
+    .click();
+  await page.getByRole("button", { name: "Рассмотреть", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Диалог переоценён после этой апелляции" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Сохранить и пересчитать", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Диалоги" })
+    .click();
+  await page
+    .getByRole("button", { name: `Выбрать диалог ${firstId}`, exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Открыть аналитику", exact: true })
+    .click();
+  await page
+    .getByText("Оценивание и история запусков", { exact: true })
+    .click();
+  await page.getByText(/AI: test-contract/).waitFor();
+  assert.equal(await page.getByRole("alert").count(), 0);
+
+  // Switching the selected dialogue must not attach an in-flight result to it.
   const otherId = await page
     .getByLabel("Выбрать другой диалог")
     .locator("option")
     .evaluateAll((options) => options.map((o) => o.value));
   const secondId = otherId.find((id) => id !== firstId);
-  await page.unroute("**/api/evaluate");
+  await page.unroute("**/api/evaluate*");
   let releaseEvaluation;
   const evaluationStarted = new Promise((resolve) => {
-    page.route("**/api/evaluate", (route) => {
+    page.route("**/api/evaluate*", (route) => {
       releaseEvaluation = route;
       resolve();
     });
@@ -162,6 +250,114 @@ try {
   assert.equal(
     await page.getByText("stale history", { exact: true }).count(),
     0,
+  );
+
+  // Updating a pending dialogue in place must reveal its real criteria and explanation.
+  const pendingId = conversations.find(
+    (dialog) => dialog.status === "pending",
+  ).id;
+  await page.getByLabel("Выбрать другой диалог").selectOption(pendingId);
+  assert.equal(
+    await page.locator(".ca-score-ring").getAttribute("aria-label"),
+    "Итоговый балл ещё не рассчитан",
+  );
+  await page.unroute("**/api/evaluate*");
+  await page.route("**/api/evaluate*", async (route) => {
+    const pendingPayload = route.request().postDataJSON();
+    assert.equal(pendingPayload.conversation_id, pendingId);
+    const message = pendingPayload.messages[0];
+    await route.fulfill({
+      json: {
+        ...successfulResponse,
+        is_mock: true,
+        scoreProvisional: true,
+        evaluationId: "test-pending-ready",
+        checklistVersion: pendingPayload.version,
+        criteriaSnapshot: pendingPayload.criteria,
+        results: successfulResponse.results.map((result) => ({
+          ...result,
+          evidenceId: result.criterionId === "1" ? "" : message.id,
+          quote: result.criterionId === "1" ? "" : message.text,
+          evidenceBasis: result.criterionId === "1" ? "absence" : "direct",
+          reviewRecommended: result.criterionId === "1",
+          checkedMessageIds: [message.id],
+        })),
+      },
+    });
+  });
+  await page
+    .getByRole("button", { name: "Оценить диалог", exact: true })
+    .click();
+  await page
+    .getByText("Обработка завершена: 1/1 успешно", { exact: true })
+    .waitFor();
+  assert.equal(
+    await page.getByLabel("Выбрать другой диалог").inputValue(),
+    pendingId,
+  );
+  assert.match(
+    await page.locator(".ca-score-ring").getAttribute("aria-label"),
+    /100/,
+  );
+  assert.equal(await page.locator(".ca-criterion-row").count(), 8);
+  assert.equal(
+    await page.locator('.ca-criterion-row[aria-pressed="true"]').count(),
+    1,
+  );
+  assert.match(
+    await page.locator(".ca-explanation").innerText(),
+    /Контрактный тест интерфейса, не оценка модели/,
+  );
+  await page
+    .getByRole("button", {
+      name: "Критерий: Установление контакта",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByText(/Предварительная оценка · нужна проверка специалистом/)
+    .waitFor();
+  await page.getByText(/Действие не найдено в проверенном диалоге/).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Показать реплику", exact: true })
+      .isDisabled(),
+    true,
+  );
+  assert.match(
+    await page.locator(".analysis-source").innerText(),
+    /Тестовый результат/,
+  );
+  assert.equal(
+    await page.getByText(/AI: test-contract/).count(),
+    0,
+    "Mock output must not claim a model analysis",
+  );
+  await page.unroute("**/api/evaluate*");
+  await page.route("**/api/evaluate*", (route) =>
+    route.fulfill({
+      status: 202,
+      json: { jobId: "failed-job", status: "queued" },
+    }),
+  );
+  await page.route("**/api/workspace-evaluations/failed-job", (route) =>
+    route.fulfill({
+      json: {
+        jobId: "failed-job",
+        status: "failed",
+        error: "Проверка не выполнена — ошибка модели",
+      },
+    }),
+  );
+  await page
+    .getByRole("button", { name: "Оценить диалог", exact: true })
+    .click();
+  await page.getByRole("alert").filter({ hasText: "ошибка модели" }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Оценить диалог", exact: true })
+      .isEnabled(),
+    true,
   );
 
   // A late startup GET must preserve edits made while connecting, and must not PUT them over another revision.
@@ -277,7 +473,7 @@ try {
   );
   await restorePage.close();
   console.log(
-    "PASS: transcript/checklist request, visible model failure, selected-dialogue race, stale history and workspace hydration protection. LLM output mocked.",
+    "PASS: transcript/checklist request, visible model failure, stale appeal protection, selected-dialogue race, stale history, pending-to-ready update and workspace hydration protection. LLM output mocked.",
   );
 } finally {
   await browser.close();
