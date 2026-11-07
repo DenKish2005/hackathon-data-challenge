@@ -1,7 +1,33 @@
 """Explicit server configuration. Secret values never appear in reprs."""
 
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def organizer_urls():
+    urls = {
+        key: value
+        for key, value in {
+            "DEV": os.getenv("FREEDOM_DEV_API_URL") or os.getenv("CQA_DATA_URL", ""),
+            "CONTROL": os.getenv("FREEDOM_CONTROL_API_URL", ""),
+        }.items()
+        if value
+    }
+    file = os.getenv("FREEDOM_DATASET_URLS_FILE")
+    if file:
+        try:
+            extra = json.loads(Path(file).read_text(encoding="utf-8-sig"))
+            if not isinstance(extra, dict) or any(
+                not isinstance(k, str) or not 1 <= len(k) <= 100 or not isinstance(v, str)
+                for k, v in extra.items()
+            ):
+                raise ValueError()
+            urls.update(extra)
+        except (OSError, ValueError) as exc:
+            raise ValueError("Invalid private dataset URL configuration file") from exc
+    return urls
 
 
 @dataclass
@@ -22,14 +48,7 @@ class Settings:
         )
     )
     organizer_urls: dict[str, str] = field(
-        default_factory=lambda: {
-            key: value
-            for key, value in {
-                "DEV": os.getenv("FREEDOM_DEV_API_URL") or os.getenv("CQA_DATA_URL", ""),
-                "CONTROL": os.getenv("FREEDOM_CONTROL_API_URL", ""),
-            }.items()
-            if value
-        },
+        default_factory=organizer_urls,
         repr=False,
     )
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "mock"))
