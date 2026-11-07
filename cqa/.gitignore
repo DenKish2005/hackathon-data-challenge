@@ -1,0 +1,6 @@
+cqa.db
+*.sqlite
+*.sqlite3
+*.db
+data/
+.env
