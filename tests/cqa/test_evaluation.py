@@ -136,3 +136,106 @@ async def test_no_fake_success_when_model_offline(tmp_path):
     with pytest.raises(httpx.ConnectError):
         await evaluator.evaluate(request())
     assert evaluator.store.history("unseen-1") == []
+
+
+@pytest.mark.parametrize("value", [True, "15", float("nan"), float("inf")])
+def test_findings_reject_coercion_and_nonfinite_answers(value):
+    data = analysis().model_dump()
+    data["results"][1]["answer"] = value
+    with pytest.raises(ValueError):
+        validate_analysis(request(), Analysis.model_validate(data))
+
+
+@pytest.mark.parametrize("values", [[0, 10, 10], [0, float("nan")], [0, float("inf")]])
+def test_invalid_scale(values):
+    data = request().model_dump()
+    data["criteria"][1]["scale"] = values
+    with pytest.raises(ValueError):
+        EvaluationRequest.model_validate(data)
+
+
+async def test_two_repairs_still_get_a_critic_pass(tmp_path):
+    calls = []
+
+    def respond(req):
+        payload = json.loads(req.content)
+        calls.append(payload)
+        content = "{}" if len(calls) < 3 else analysis().model_dump_json()
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    evaluator = Evaluator(Store(str(tmp_path / "db")), httpx.MockTransport(respond))
+    result = await evaluator.evaluate(request())
+    assert result["passes"] == 4
+    assert "Critic" in calls[-1]["messages"][-1]["content"]
+    assert len(evaluator.store.history("unseen-1")) == 1
+
+
+async def test_invalid_critic_cannot_persist_draft(tmp_path):
+    calls = []
+
+    def respond(req):
+        calls.append(req)
+        content = analysis().model_dump_json() if len(calls) == 1 else "{}"
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    evaluator = Evaluator(Store(str(tmp_path / "db")), httpx.MockTransport(respond))
+    with pytest.raises(ValueError, match="после исправлений"):
+        await evaluator.evaluate(request())
+    assert len(calls) == 4
+    assert evaluator.store.history("unseen-1") == []
+
+
+async def test_context_overflow_never_sends_truncated_transcript(tmp_path):
+    calls = []
+
+    def respond(req):
+        calls.append(req)
+        return httpx.Response(200)
+
+    evaluator = Evaluator(Store(str(tmp_path / "db")), httpx.MockTransport(respond))
+    evaluator.context_size = 32768
+    data = request().model_dump()
+    data["messages"][0]["text"] = "Қ" * 15000
+    with pytest.raises(ValueError, match="безопасный контекст"):
+        await evaluator.evaluate(EvaluationRequest.model_validate(data))
+    assert calls == []
+
+
+async def test_truncated_model_response_never_saved(tmp_path):
+    def respond(req):
+        return httpx.Response(
+            200,
+            json={
+                "message": {"content": analysis().model_dump_json()},
+                "done_reason": "length",
+            },
+        )
+
+    evaluator = Evaluator(Store(str(tmp_path / "db")), httpx.MockTransport(respond))
+    with pytest.raises(ValueError, match="оборван"):
+        await evaluator.evaluate(request())
+    assert evaluator.store.history("unseen-1") == []
+
+
+@pytest.mark.parametrize("invalid", [True, float("nan"), float("inf")])
+def test_benchmark_rejects_invalid_scores(invalid):
+    from cqa.benchmark import compare
+
+    truth = [{"conversation_id": "a", "results": [{"criterionId": "x", "answer": "Да"}]}]
+    with pytest.raises(ValueError, match="Score must be finite"):
+        compare([{**truth[0], "score": invalid}], truth)
+
+
+def test_benchmark_reports_coverage_and_rejects_duplicate_truth():
+    from cqa.benchmark import compare
+
+    truth = [
+        {"conversation_id": "a", "score": 90, "results": [{"criterionId": "x", "answer": "Да"}]}
+    ]
+    result = compare([], truth)
+    assert result["criterion_accuracy"] == 0
+    assert result["score_mae"] is None
+    assert result["score_coverage"] == 0
+    assert result["missing_scores"] == ["a"]
+    with pytest.raises(ValueError, match="Duplicate conversation"):
+        compare([], truth * 2)

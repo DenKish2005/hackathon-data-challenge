@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import math
 import os
 import sqlite3
 from datetime import UTC, datetime
@@ -16,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
 
 class Criterion(Strict):
@@ -31,6 +32,8 @@ class Criterion(Strict):
 
     @model_validator(mode="after")
     def valid(self):
+        if len(set(self.scale)) != len(self.scale) or not all(map(math.isfinite, self.scale)):
+            raise ValueError("Ступени шкалы должны быть уникальными конечными числами")
         if self.type == "scale" and (not self.scale or min(self.scale) < 0 or max(self.scale) <= 0):
             raise ValueError("Числовая шкала должна содержать положительный максимум")
         if self.type == "flag" and (self.weight or self.naAllowed):
@@ -41,7 +44,7 @@ class Criterion(Strict):
 
 
 class Message(Strict):
-    id: str
+    id: str = Field(min_length=1, max_length=100)
     role: Literal["client", "operator", "bot", "system"]
     text: str = Field(max_length=15000)
     time: str
@@ -76,7 +79,7 @@ class Finding(Strict):
 
 
 class Analysis(Strict):
-    results: list[Finding]
+    results: list[Finding] = Field(min_length=1, max_length=50)
     summary: str = Field(min_length=1, max_length=3000)
 
 
@@ -92,10 +95,13 @@ def validate_analysis(request, analysis):
         allowed = c.scale if c.type == "scale" else ["Да", "Нет"]
         if r.answer not in [*allowed, *(["N/A"] if c.naAllowed else [])]:
             raise ValueError(f"Недопустимый ответ критерия {c.id}")
+        if not r.reason.strip() or not r.quote.strip():
+            raise ValueError("Обоснование и цитата не должны состоять из пробелов")
         if r.evidenceId not in messages or r.quote not in messages[r.evidenceId].text:
             raise ValueError(f"Цитата {c.id} не найдена в исходной реплике")
         if (
-            not set(r.checkedMessageIds) <= messages.keys()
+            len(set(r.checkedMessageIds)) != len(r.checkedMessageIds)
+            or not set(r.checkedMessageIds) <= messages.keys()
             or r.evidenceId not in r.checkedMessageIds
         ):
             raise ValueError("Некорректный проверенный участок")
@@ -200,9 +206,29 @@ class Evaluator:
         self.model = os.getenv("CQA_MODEL", "qwen3:4b")
         self.url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
         self.transport = transport
-        self.semaphore = asyncio.Semaphore(int(os.getenv("CQA_CONCURRENCY", "1")))
+        concurrency = int(os.getenv("CQA_CONCURRENCY", "1"))
+        if concurrency < 1:
+            raise ValueError("CQA_CONCURRENCY должна быть положительной")
+        self.semaphore = asyncio.Semaphore(concurrency)
+        self.context_size = int(os.getenv("CQA_NUM_CTX", "65536"))
+        if self.context_size < 8192:
+            raise ValueError("CQA_NUM_CTX должна быть не меньше 8192")
+        self.output_limit = 5000
+
+    def check_context(self, messages):
+        # UTF-8 bytes bound byte-level tokenization conservatively. Include JSON schema,
+        # an output allowance and chat-template overhead; never let Ollama truncate input.
+        prompt_bytes = len(json.dumps(messages, ensure_ascii=False).encode())
+        schema_bytes = len(json.dumps(Analysis.model_json_schema(), ensure_ascii=False).encode())
+        if prompt_bytes + schema_bytes + self.output_limit + 1024 > self.context_size:
+            raise ValueError(
+                "Текст с чек-листом превышает безопасный контекст модели. "
+                "Сократите запрос или увеличьте CQA_NUM_CTX при наличии памяти. "
+                "Оценка усечённого транскрипта не выполняется."
+            )
 
     async def generate(self, messages):
+        self.check_context(messages)
         async with httpx.AsyncClient(
             timeout=600, transport=self.transport, trust_env=False
         ) as client:
@@ -215,7 +241,11 @@ class Evaluator:
                         "think": False,
                         "format": Analysis.model_json_schema(),
                         "messages": messages,
-                        "options": {"temperature": 0, "num_ctx": 16384, "num_predict": 5000},
+                        "options": {
+                            "temperature": 0,
+                            "num_ctx": self.context_size,
+                            "num_predict": self.output_limit,
+                        },
                     },
                 )
                 if response.status_code in (429, 503) and attempt < 2:
@@ -223,6 +253,10 @@ class Evaluator:
                     continue
                 response.raise_for_status()
                 data = response.json()
+                if not isinstance(data, dict) or not isinstance(data.get("message"), dict):
+                    raise ValueError("Ollama вернула некорректный ответ")
+                if data.get("done_reason") == "length":
+                    raise ValueError("Ответ модели оборван лимитом токенов; результат не сохранён")
                 if not isinstance(data.get("message", {}).get("content"), str):
                     raise ValueError("Ollama вернула ответ без текста оценки")
                 return data
@@ -231,7 +265,7 @@ class Evaluator:
         content = request.model_dump(exclude={"force"})
         key = hashlib.sha256(
             json.dumps(
-                {"input": content, "model": self.model, "prompt": RULES, "pipeline": 1},
+                {"input": content, "model": self.model, "prompt": RULES, "pipeline": 2},
                 sort_keys=True,
                 ensure_ascii=False,
             ).encode()
@@ -244,49 +278,50 @@ class Evaluator:
                 {"role": "user", "content": json.dumps(content, ensure_ascii=False)},
             ]
             tokens = 0
-            needs_critic = True
-            # Independent critic pass always sees the original transcript and complete checklist.
-            for step in range(3):
-                response = await self.generate(messages)
-                tokens += response.get("eval_count", 0) + response.get("prompt_eval_count", 0)
-                raw = response["message"]["content"]
-                try:
-                    analysis = validate_analysis(request, Analysis.model_validate_json(raw))
-                except (ValueError, KeyError) as exc:
-                    if step == 2:
-                        raise ValueError(
-                            "Модель не вернула проверяемую оценку после исправлений"
-                        ) from exc
+            passes = 0
+            analysis = None
+            # Each phase has its own repair budget: invalid drafts must never consume
+            # the critic's opportunity or be persisted as final results.
+            for phase in ("evaluate", "critic"):
+                for attempt in range(3):
+                    response = await self.generate(messages)
+                    passes += 1
+                    tokens += response.get("eval_count", 0) + response.get("prompt_eval_count", 0)
+                    raw = response["message"]["content"]
+                    try:
+                        analysis = validate_analysis(request, Analysis.model_validate_json(raw))
+                    except (ValueError, KeyError) as exc:
+                        if attempt == 2:
+                            raise ValueError(
+                                "Модель не вернула проверяемую оценку после исправлений"
+                            ) from exc
+                        messages.extend(
+                            [
+                                {"role": "assistant", "content": raw},
+                                {
+                                    "role": "user",
+                                    "content": (f"Исправь JSON: {exc}. Верни полный результат."),
+                                },
+                            ]
+                        )
+                        continue
+                    break
+                if phase == "evaluate":
                     messages.extend(
                         [
-                            {"role": "assistant", "content": raw},
-                            {
-                                "role": "user",
-                                "content": f"Исправь JSON: {exc}. Верни полный результат.",
-                            },
-                        ]
-                    )
-                    continue
-                if needs_critic:
-                    needs_critic = False
-                    messages.extend(
-                        [
-                            {"role": "assistant", "content": raw},
+                            {"role": "assistant", "content": analysis.model_dump_json()},
                             {
                                 "role": "user",
                                 "content": (
-                                    "Роль Critic: независимо перепроверь каждый ответ по "
-                                    "исходному тексту. Особенно "
-                                    "N/A, первый ответ оператора, идентификацию до действия, "
-                                    "предложения личной "
-                                    "платной услуги, обрыв и ступени шкал. Исправь "
-                                    "необоснованные оценки. Верни "
-                                    "полный финальный JSON. "
+                                    "Роль Critic: проверь каждый ответ по исходному тексту. "
+                                    "Особенно N/A, первый ответ оператора, идентификацию до "
+                                    "защищённого действия, частные платные услуги, обрыв диалога "
+                                    "и ступени шкал. Исправь ошибки. Верни полный финальный JSON."
                                 ),
                             },
                         ]
                     )
-                    continue
+            if analysis is not None:
                 body = {
                     "evaluationId": str(uuid4()),
                     "conversation_id": request.conversation_id,
@@ -298,7 +333,7 @@ class Evaluator:
                     **analysis.model_dump(),
                     **score(request.criteria, analysis.results),
                     "tokens": tokens,
-                    "passes": step + 1,
+                    "passes": passes,
                     "cached": False,
                 }
                 self.store.save(key, body)

@@ -70,8 +70,214 @@ try {
   assert.ok(payload.messages.some((m) => m.role === "operator"));
   assert.equal(payload.force, false);
   assert.equal(await page.getByRole("alert").count(), 0);
+  // Switching the selected dialogue must not attach an in-flight result to it.
+  const firstId = payload.conversation_id;
+  const otherId = await page
+    .getByLabel("Выбрать другой диалог")
+    .locator("option")
+    .evaluateAll((options) => options.map((o) => o.value));
+  const secondId = otherId.find((id) => id !== firstId);
+  await page.unroute("**/api/evaluate");
+  let releaseEvaluation;
+  const evaluationStarted = new Promise((resolve) => {
+    page.route("**/api/evaluate", (route) => {
+      releaseEvaluation = route;
+      resolve();
+    });
+  });
+  await page
+    .getByRole("button", { name: "Оценить диалог", exact: true })
+    .click();
+  await evaluationStarted;
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Анализируется…", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await page.getByLabel("Выбрать другой диалог").selectOption(secondId);
+  await releaseEvaluation.fulfill({
+    json: {
+      evaluationId: "test-delayed",
+      model: "delayed-model",
+      passes: 2,
+      tokens: 1,
+      checklistVersion: payload.version,
+      criteriaSnapshot: payload.criteria,
+      score: 100,
+      critical: false,
+      results: payload.criteria.map((c) => ({
+        criterionId: c.id,
+        answer:
+          c.type === "flag"
+            ? "Нет"
+            : c.naAllowed
+              ? "N/A"
+              : c.type === "scale"
+                ? Math.max(...c.scale)
+                : "Да",
+        reason: "Проверяется исходный выбранный диалог",
+        evidenceId: payload.messages[0].id,
+        quote: payload.messages[0].text,
+        checkedMessageIds: [payload.messages[0].id],
+        confidence: 0.8,
+      })),
+    },
+  });
+  await page
+    .getByText("Обработка завершена: 1/1 успешно", { exact: true })
+    .waitFor();
+  assert.equal(
+    await page.getByLabel("Выбрать другой диалог").inputValue(),
+    secondId,
+  );
+  assert.equal(await page.getByText(/AI: delayed-model/).count(), 0);
+
+  // A delayed history response from the previous dialogue must not leak into the next one.
+  let releaseHistory;
+  const historyStarted = new Promise((resolve) => {
+    page.route("**/api/history/**", (route) => {
+      releaseHistory = route;
+      resolve();
+    });
+  });
+  await page.getByRole("button", { name: "История AI-оценок" }).click();
+  await historyStarted;
+  await page.getByLabel("Выбрать другой диалог").selectOption(firstId);
+  await releaseHistory
+    .fulfill({
+      json: [
+        {
+          evaluationId: "old-history",
+          model: "wrong-history",
+          createdAt: "yesterday",
+          checklistVersion: 1,
+          score: 20,
+          results: [],
+          summary: "stale history",
+        },
+      ],
+    })
+    .catch(() => {});
+  assert.equal(
+    await page.getByText("stale history", { exact: true }).count(),
+    0,
+  );
+
+  // A late startup GET must preserve edits made while connecting, and must not PUT them over another revision.
+  const workspacePage = await browser.newPage();
+  await workspacePage.route("**/api/health", (route) =>
+    route.fulfill({ json: { status: "model_unavailable" } }),
+  );
+  let pendingWorkspace;
+  let writes = 0;
+  const workspaceStarted = new Promise((resolve) => {
+    workspacePage.route("**/api/workspace", (route) => {
+      if (route.request().method() === "GET") {
+        pendingWorkspace = route;
+        resolve();
+      } else {
+        writes++;
+        route.fulfill({ json: { revision: 10 } });
+      }
+    });
+  });
+  await workspacePage.goto(process.env.BASE_URL || "http://127.0.0.1:8000");
+  await workspaceStarted;
+  const originalWorkspace = await workspacePage.evaluate(() => ({
+    dialogs: JSON.parse(localStorage.getItem("freedom-cqa-dialogs")),
+    criteria: JSON.parse(localStorage.getItem("freedom-cqa-criteria")),
+    version: JSON.parse(localStorage.getItem("freedom-cqa-version")),
+    appeals: JSON.parse(localStorage.getItem("freedom-cqa-appeals")),
+  }));
+  await workspacePage
+    .getByRole("navigation")
+    .getByRole("button", { name: "Критерии оценки" })
+    .click();
+  await workspacePage
+    .getByRole("button", { name: "Настроить", exact: true })
+    .first()
+    .click();
+  await workspacePage
+    .getByLabel("Название", { exact: true })
+    .fill("Локальная правка во время подключения");
+  await workspacePage
+    .getByRole("button", { name: "Сохранить", exact: true })
+    .click();
+  await pendingWorkspace.fulfill({
+    json: { revision: 9, data: originalWorkspace },
+  });
+  await workspacePage
+    .getByText(/Данные изменены во время подключения/)
+    .waitFor();
+  assert.equal(
+    await workspacePage
+      .getByRole("heading", {
+        name: "Локальная правка во время подключения",
+        exact: true,
+      })
+      .count(),
+    1,
+  );
+  await workspacePage.waitForTimeout(1700);
+  assert.equal(writes, 0);
+  await workspacePage.close();
+  // Restoration must finish even if the server serializes object keys in a different order.
+  const restorePage = await browser.newPage();
+  const restoredWorkspace = {
+    version: originalWorkspace.version,
+    appeals: originalWorkspace.appeals,
+    criteria: structuredClone(originalWorkspace.criteria),
+    dialogs: originalWorkspace.dialogs,
+  };
+  restoredWorkspace.criteria[0].title = "Критерий с сервера";
+  let restoredWrites = [];
+  await restorePage.route("**/api/workspace", (route) => {
+    if (route.request().method() === "GET")
+      route.fulfill({ json: { revision: 12, data: restoredWorkspace } });
+    else {
+      restoredWrites.push(route.request().postDataJSON());
+      route.fulfill({ json: { revision: 13 } });
+    }
+  });
+  await restorePage.route("**/api/health", (route) =>
+    route.fulfill({ json: { status: "model_unavailable" } }),
+  );
+  await restorePage.goto(process.env.BASE_URL || "http://127.0.0.1:8000");
+  await restorePage
+    .getByText("Рабочее пространство восстановлено с сервера", { exact: true })
+    .waitFor();
+  await restorePage
+    .getByRole("navigation")
+    .getByRole("button", { name: "Критерии оценки" })
+    .click();
+  await restorePage
+    .getByRole("heading", { name: "Критерий с сервера", exact: true })
+    .waitFor();
+  await restorePage.waitForTimeout(1700);
+  assert.equal(restoredWrites.length, 0);
+  await restorePage
+    .getByRole("button", { name: "Настроить", exact: true })
+    .first()
+    .click();
+  await restorePage
+    .getByLabel("Название", { exact: true })
+    .fill("Правка после восстановления");
+  await restorePage
+    .getByRole("button", { name: "Сохранить", exact: true })
+    .click();
+  await restorePage
+    .getByText("Изменения сохранены на сервере", { exact: true })
+    .waitFor();
+  assert.equal(restoredWrites.length, 1);
+  assert.equal(restoredWrites[0].revision, 12);
+  assert.equal(
+    restoredWrites[0].data.criteria[0].title,
+    "Правка после восстановления",
+  );
+  await restorePage.close();
   console.log(
-    "PASS: transcript/checklist request, visible model failure, applied evaluation response. LLM output mocked.",
+    "PASS: transcript/checklist request, visible model failure, selected-dialogue race, stale history and workspace hydration protection. LLM output mocked.",
   );
 } finally {
   await browser.close();

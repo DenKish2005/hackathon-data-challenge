@@ -412,9 +412,12 @@ export default function App() {
             navigate("conversations");
           }}
         >
-          <span className="freedom-symbol" aria-hidden="true">
-            f<span>•</span>
-          </span>
+          <img
+            className="freedom-brand-mark"
+            src="./freedom-mark.svg"
+            alt=""
+            aria-hidden="true"
+          />
           <span className="freedom-wordmark">
             freedom<span>BROKER</span>
           </span>

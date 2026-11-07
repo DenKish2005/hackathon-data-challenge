@@ -1,6 +1,5 @@
 """Local CQA API and production frontend host."""
 
-import json
 import os
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from cqa.service import EvaluationRequest, Evaluator
+from cqa.workspace import WorkspaceConflict, read_workspace, write_workspace
 
 app = FastAPI(title="Freedom CQA", version="1.0.0")
 evaluator = Evaluator()
@@ -76,35 +76,17 @@ class Workspace(BaseModel):
 
 @app.get("/api/workspace")
 def get_workspace():
-    with evaluator.store.connect() as db:
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS workspace "
-            "(id INTEGER PRIMARY KEY, revision INTEGER, body TEXT)"
-        )
-        row = db.execute("SELECT revision,body FROM workspace WHERE id=1").fetchone()
-    return (
-        {"revision": row[0], "data": json.loads(row[1])} if row else {"revision": 0, "data": None}
-    )
+    return read_workspace(evaluator.store)
 
 
 @app.put("/api/workspace")
 def put_workspace(workspace: Workspace):
-    body = json.dumps(workspace.data, ensure_ascii=False)
-    if len(body.encode()) > 10_000_000:
-        raise HTTPException(413, "Рабочее пространство превышает 10 МБ")
-    get_workspace()
-    with evaluator.store.connect() as db:
-        db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT revision FROM workspace WHERE id=1").fetchone()
-        revision = row[0] if row else 0
-        if revision != workspace.revision:
-            raise HTTPException(
-                409,
-                "Данные изменены в другой вкладке. "
-                "Экспортируйте локальные изменения перед обновлением.",
-            )
-        db.execute("INSERT OR REPLACE INTO workspace VALUES (1,?,?)", (revision + 1, body))
-    return {"revision": revision + 1}
+    try:
+        return write_workspace(evaluator.store, workspace.revision, workspace.data)
+    except WorkspaceConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(413, str(exc)) from exc
 
 
 static = Path(__file__).resolve().parents[2] / "frontend" / "dist"
