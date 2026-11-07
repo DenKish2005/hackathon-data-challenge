@@ -1,5 +1,8 @@
 # CQA Backend Foundation
 
+Phase 2: [единый запуск и настройки](cqa-phase2.md),
+[API-handoff](cqa-phase2-handoff.md), [проверки и live LLM](cqa-phase2-verification.md).
+
 Приложение участника 1 находится в `src/cqa/backend/`, инфраструктура — в
 `src/cqa/infra/`, опциональные агенты — в `src/cqa/agents/{extractor,classifier}/`.
 Используется существующая структура Python-пакета `src/cqa`, чтобы не создавать второй
@@ -41,7 +44,8 @@ $env:CQA_WORKERS = '2' # параллелизм внутри единствен�
 Контейнерный вариант: `docker compose -f compose.foundation.yml up --build`.
 Он привязан к loopback, работает от непривилегированного пользователя и хранит БД
 в именованном томе. Образ модели не скачивается. Для нового внешнего провайдера
-передайте переменные серверу отдельно; текущий Compose намеренно запускает mock.
+задайте переменные LLM в окружении Compose; по умолчанию запускается mock.
+Frontend собирается в отдельном Node stage и обслуживается backend.
 
 ## Данные и хранение
 
@@ -76,7 +80,7 @@ ID диалога глобален для базы: при пересечени�
 
 | Метод и URL | Вход / результат |
 | --- | --- |
-| `GET /health` | `status`, `provider`, `model`, `is_mock`; проверяет БД, не готовность реальной LLM |
+| `GET /health` | `status`, `provider`, `model`, `is_mock`; проверяет БД и наличие модели Ollama, не гарантирует генерацию |
 | `POST /datasets/import` | `{source:"local", payload:OFFICIAL_ENVELOPE}` или `{source:"organizer",group_id:"DEV"}` → `dataset_group_id,total_records,imported,skipped` |
 | `GET /conversations` | Массив; фильтры `group_id,language,channel`, `offset=0,limit=100` (макс. 1000) |
 | `GET /conversations/{id}` | Поля Conversation + `messages`; исходный payload остаётся на сервере |
@@ -130,12 +134,11 @@ Evaluation содержит также `job_id,evaluator_name,model_name,prompt_
 Принятое решение проходит ту же валидацию и Scoring adapter с исторической версией
 чек-листа. Исходный `result_json` не обновляется; решения накапливаются последовательно.
 
-**Подключение существующего интерфейса:** текущие `cqa.api` и браузерный workspace остаются
-отдельным прототипом со старым контрактом. Новый foundation не мигрирует автоматически
-их SQLite/localStorage и не заменяет `/api/evaluate` или `/api/workspace`.
-Frontend-разработчик должен подключить перечисленные REST endpoints и хранить ID jobs/evaluations,
-маппируя поля сообщений и результатов на существующие view models. При параллельном запуске
-назначьте приложениям разные порты. Реальные звонки не импортируйте в публичный static demo.
+**Подключение существующего интерфейса (Phase 2):** `cqa.api:app` теперь является
+именем того же Foundation-приложения. `/api/evaluate`, `/api/history`, `/api/workspace`
+и `/api/organizer` обслуживаются адаптером над общими canonical таблицами и очередью.
+Старый SQLite-файл не удаляется. React-компоненты не менялись; точные следующие
+изменения владельцу UI описаны в [handoff](cqa-phase2-handoff.md).
 
 ## Контракт AI-разработчика
 
@@ -178,7 +181,9 @@ Classifier: `configuration()` и `async classify(extraction,categories)`.
 MockEvaluator возвращает синтетические ответы с `is_mock=true`, без выдуманных цитат.
 Он не измеряет качество. `ProviderEvaluator` адаптирует существующие `RULES`, `Analysis`
 и `validate_analysis` участника AI; проверяет точные цитаты перед преобразованием в Finding.
-Это один проход; обязательный Critic реального пайплайна подключается отдельно.
+App factory подключает ProviderCritic с существующей командной инструкцией.
+`CQA_ENABLE_CRITIC=false` оставляет один проход для ограниченной памяти.
+Отдельная реализация Critic участника 2 подключается через Pipeline.
 
 ## Провайдеры и контрольные данные
 
@@ -196,7 +201,7 @@ $env:CQA_ALLOW_EXTERNAL_DATA = 'true'
 Бесплатные лимиты не гарантируются. Реальный вызов производится только при задании.
 Для Ollama: установите и запустите её самостоятельно, осознанно загрузите подходящую
 модель, задайте `LLM_PROVIDER=ollama`, `LLM_BASE_URL=http://127.0.0.1:11434`, `LLM_MODEL`.
-Автозагрузки модели нет. Следует проверить доступный контекст (адаптер запрашивает 65536),
+Автозагрузки модели нет. Настройте `LLM_CONTEXT_SIZE` (по умолчанию 65536), `LLM_OUTPUT_LIMIT`,
 RAM и увеличить `CQA_JOB_TIMEOUT` при необходимости. Удалённый сервер должен быть доверенным.
 Настоящая генерация, точность RU/KZ/EN, токены и лимиты конкретных моделей требуют
 отдельного прогона с разрешёнными данными. Тесты используют HTTP mock transport.
@@ -256,4 +261,5 @@ $env:CQA_TEST_DEV_FILE = 'C:\private\cqa_dev_utf8_fixed.json'
 исходные timestamps/audio, повторный/атомарный импорт, версии, N/A/ступени,
 mock, retries/timeouts/concurrency, восстановление и апелляции. Это не проверка
 реального DEV или точности модели. Полный `pytest` также требует Redis для старого TokenOps.
-Фактический прогон и ограничения окружения: [отчёт](cqa-backend-validation.md).
+Исходный отчёт Foundation: [baseline](cqa-backend-validation.md).
+Актуальный прогон Phase 2: [проверки и live LLM](cqa-phase2-verification.md).
