@@ -50,6 +50,9 @@ try {
     viewport: { width: 1440, height: 1100 },
     reducedMotion: "reduce",
   });
+  await page.route("**/api/workspace", (route) =>
+    route.fulfill({ json: { revision: 0, data: null } }),
+  );
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:5173");

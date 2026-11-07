@@ -44,6 +44,8 @@ import {
 } from "lucide-react";
 import ReviewWorkspace from "./ReviewWorkspace";
 import SelectionDesk from "./SelectionDesk";
+import EvaluationPanel from "./EvaluationPanel";
+import WorkspaceSync from "./WorkspaceSync";
 import {
   initialCriteria,
   conversations as demoConversations,
@@ -202,6 +204,18 @@ export default function App() {
     const t = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(t);
   }, [toast]);
+  function applyEvaluation(id, result) {
+    const update = (d) => ({
+      ...d,
+      ...result,
+      id: d.id,
+      status: "done",
+      source: "ollama",
+      originalResults: result.results,
+    });
+    setDialogs((old) => old.map((d) => (d.id === id ? update(d) : d)));
+    setSelected((old) => (old?.id === id ? update(old) : old));
+  }
   function navigate(p) {
     setPage(p);
     setSelected(null);
@@ -339,7 +353,9 @@ export default function App() {
       [
         JSON.stringify(
           {
-            demo: true,
+            demo: (chosen ? [chosen] : dialogs).some(
+              (d) => d.status !== "pending" && d.source !== "ollama",
+            ),
             checklistVersion: chosen ? chosen.checklistVersion || 1 : version,
             criteria: chosen
               ? chosen.criteriaSnapshot || initialCriteria
@@ -378,6 +394,15 @@ export default function App() {
   }
   return (
     <div className="app-shell">
+      <WorkspaceSync
+        data={{ dialogs, criteria, version, appeals }}
+        restore={(w) => {
+          if (Array.isArray(w.dialogs)) setDialogs(w.dialogs);
+          if (Array.isArray(w.criteria)) setCriteria(w.criteria);
+          if (Number.isInteger(w.version)) setVersion(w.version);
+          if (Array.isArray(w.appeals)) setAppeals(w.appeals);
+        }}
+      />
       <a className="skip-link" href="#main-content">
         Перейти к содержимому
       </a>
@@ -553,6 +578,19 @@ export default function App() {
                   </Button>
                 </div>
               </div>
+              <EvaluationPanel
+                dialogs={[selected]}
+                criteria={criteria}
+                version={version}
+                onResult={applyEvaluation}
+              />
+              <p className="muted">
+                {selected.source === "ollama"
+                  ? `AI: ${selected.model} · ${selected.passes} прохода · ${selected.tokens} токенов · ${selected.cached ? "кэш" : "новый анализ"}`
+                  : selected.status === "pending"
+                    ? "Диалог ещё не оценён"
+                    : "Синтетический демонстрационный пример — не результат AI"}
+              </p>
               <ReviewWorkspace
                 key={selected.id}
                 dialog={selected}
@@ -635,7 +673,7 @@ export default function App() {
                 </div>
               </div>
               {page === "conversations" && (
-                <SelectionDesk
+<SelectionDesk
                   dialogs={dialogs}
                   initialCandidateId={lastDialogId}
                   criteria={criteria}
@@ -650,6 +688,7 @@ export default function App() {
                   }
                 />
               )}
+              {page === "conversations" && <details className="backend-controls"><summary>Оценивание новых диалогов</summary><EvaluationPanel dialogs={dialogs.filter(d=>d.status==="pending")} criteria={criteria} version={version} onResult={applyEvaluation}/></details>}
               {page === "overview" && (
                 <>
                   <div className="toolbar overview-toolbar">
@@ -1237,7 +1276,7 @@ export default function App() {
                 setModal(null);
                 navigate("conversations");
                 setToast(
-                  `Загружено диалогов: ${items.length}. Для оценивания требуется серверный API.`,
+                  `Загружено диалогов: ${items.length}. Можно запускать оценку через Ollama.`,
                 );
               }}
             />
@@ -1871,6 +1910,24 @@ function ImportForm({ existing, onImport }) {
         Загрузите JSON, полученный из готового API. Поддерживается структура
         data.records. Подписанный URL в браузере не сохраняется.
       </p>
+      <Button
+        onClick={async () => {
+          try {
+            const r = await fetch(
+              "/api/organizer?group_id=" +
+                encodeURIComponent(prompt("group_id", "DEV") || "DEV"),
+            );
+            const data = await r.json();
+            if (!r.ok) throw Error(data.detail);
+            setRaw(JSON.stringify(data));
+            setError("");
+          } catch (e) {
+            setError(e.message);
+          }
+        }}
+      >
+        Получить данные организаторов
+      </Button>
       <label className="upload-area">
         <Upload size={25} />
         <strong>Выберите JSON-файл</strong>
