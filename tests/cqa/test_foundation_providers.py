@@ -210,6 +210,57 @@ async def test_context_rejected_before_http(provider_class):
         await provider.generate([{"content": "Ж" * 3000}], {})
 
 
+async def test_ollama_schema_grammar_is_not_charged_as_prompt_text():
+    messages = [{"role": "user", "content": "Return JSON"}]
+    schema = {"type": "object", "properties": {"value": {"enum": ["x" * 10000]}}}
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["messages"] == messages
+        assert body["format"] == schema
+        assert body["options"]["num_ctx"] == 4096
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "done_reason": "stop",
+                "prompt_eval_count": 120,
+                "message": {"content": '{"value": "synthetic"}'},
+            },
+        )
+
+    provider = OllamaProvider(
+        "http://localhost:11434",
+        "test",
+        context_size=4096,
+        output_limit=512,
+        transport=httpx.MockTransport(handler),
+    )
+    assert await provider.generate(messages, schema) == {"value": "synthetic"}
+
+
+async def test_ollama_reported_prompt_overflow_is_rejected():
+    provider = OllamaProvider(
+        "http://localhost:11434",
+        "test",
+        context_size=4096,
+        output_limit=512,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={
+                    "done": True,
+                    "done_reason": "stop",
+                    "prompt_eval_count": 3800,
+                    "message": {"content": '{"value": "synthetic"}'},
+                },
+            )
+        ),
+    )
+    with pytest.raises(ProviderError, match="context"):
+        await provider.generate([{"role": "user", "content": "Return JSON"}], {})
+
+
 def test_remote_ollama_needs_data_permission():
     with pytest.raises(ValueError, match="permission"):
         build_provider(
