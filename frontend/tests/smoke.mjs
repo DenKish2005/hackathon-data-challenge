@@ -49,11 +49,21 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   const errors = [];
+  await page.emulateMedia({ reducedMotion: "reduce" });
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:5173");
   await page
     .getByRole("heading", { name: "Обзор качества", exact: true })
     .waitFor();
+  assert.match(await page.title(), /Freedom Broker/);
+  assert.doesNotMatch(await page.locator("body").innerText(), /Sana|Сана/i);
+  await page.getByLabel("Период аналитики").selectOption("Все оценки");
+  assert.equal(
+    await page.locator('svg [role="button"]').count(),
+    conversations.filter((d) => d.status !== "pending").length,
+  );
+  await page.getByLabel("Период аналитики").selectOption("Последние 7 оценок");
+  assert.equal(await page.locator('svg [role="button"]').count(), 7);
   await page
     .getByRole("navigation")
     .getByRole("button", { name: "Диалоги" })
@@ -173,11 +183,11 @@ try {
   await page.waitForFunction(
     () => document.querySelector(".sidebar").getBoundingClientRect().right <= 0,
   );
-  await page.screenshot({ path: "/tmp/sana-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/freedom-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1050 });
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.screenshot({ path: "/tmp/sana-desktop.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/freedom-desktop.png", fullPage: true });
   assert.deepEqual(errors, []);
   console.log(
     "PASS: scoring, filtering, evidence links, appeal resolution, checklist editing and persistence, import, modal Escape, mobile navigation and layout.",

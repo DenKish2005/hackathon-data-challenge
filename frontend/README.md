@@ -1,4 +1,8 @@
-# Sana · Conversation Quality Analytics
+# Freedom Broker · Quality Intelligence
+
+![Freedom Broker CQA dashboard](docs/freedom-overview.png)
+
+[Mobile preview](docs/freedom-mobile.png)
 
 Responsive Russian-language frontend for the CQA hackathon. Built with React, Vite and Lucide icons. Changes in this PR are confined to `frontend/`.
 
@@ -16,7 +20,7 @@ Production: `npm run build`. Serve `dist/` using your web server, or use `npm ru
 
 ## Working features
 
-- Dashboard, overview metrics, illustrative trend and criterion charts.
+- Dashboard, overview metrics, computed conversation and criterion charts.
 - Conversation list with search, language, channel and status filters.
 - Transcript next to per-criterion results; evidence links highlight the source message.
 - Eight initial checklist criteria from the provided PDF, including scales, N/A and separate critical-error flag.
@@ -28,7 +32,7 @@ Production: `npm run build`. Serve `dist/` using your web server, or use `npm ru
 
 ## Demo boundaries
 
-The UI starts with **synthetic demonstration conversations**, not the organizers' DEV dataset. Analytics charts are explicitly illustrative. The application does not call an LLM, run agents, import automatically from a signed URL, or authenticate users. Agent cards explain planned roles. An imported conversation has no generated evaluation. No API keys or signed URLs belong in the frontend.
+The UI starts with **synthetic demonstration conversations**, not the organizers' DEV dataset. Analytics charts are computed from the current demonstration evaluations. The application does not call an LLM, run agents, import automatically from a signed URL, or authenticate users. Agent cards explain planned roles. An imported conversation has no generated evaluation. No API keys or signed URLs belong in the frontend.
 
 Browser-local state is saved in localStorage. This is convenient for a prototype, not shared server storage. Clear the site's browser storage to reset the demo. Store real conversations and decisions on your backend when connecting the product; review browser retention needs before importing confidential data.
 
@@ -79,3 +83,11 @@ git push -u origin feat/your-task
 ```
 
 Before merging, fetch main and merge it into your feature branch, resolve conflicts in your own files and rerun affected checks. Use one PR per coherent task. Do not force-push a shared branch. Merge PRs one at a time; cross-directory integration happens through the agreed API contract.
+
+## Freedom design refresh
+
+The UI uses a Freedom-inspired green, white and charcoal palette and a typographic Freedom Broker lockup. Manrope is self-hosted, including Cyrillic, so the interface does not depend on Google Fonts. Existing browser-local state migrates from the previous prototype's storage keys.
+
+Charts and criterion summaries now derive from the current evaluations instead of fixed illustration values. The chart selector switches the latest seven evaluations/all evaluations, not an unsupported date filter. New checklist versions do not retroactively change historical results.
+
+Production assets use relative paths, suitable for either a server root or a GitHub Pages repository subpath. Public deployment still needs an explicitly selected hosting target and access.
