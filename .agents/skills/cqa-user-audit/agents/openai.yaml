@@ -1,0 +1,6 @@
+interface:
+  display_name: "CQA User Audit"
+  short_description: "Browser QA Freedom CQA с трассировкой действий и отчётом для исправлений"
+  default_prompt: "Используй $cqa-user-audit для независимого пользовательского аудита Freedom CQA. Тестируй браузером на отдельной синтетической БД, не исправляй код, запиши все действия, баги, coverage и FIX_PROMPT.md."
+policy:
+  allow_implicit_invocation: true

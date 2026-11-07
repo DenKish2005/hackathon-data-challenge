@@ -1,0 +1,1 @@
+{"step":1,"at":"REPLACE_UTC_ISO_TIMESTAMP","scenario_id":"BOOT-01","mode":"INTEGRATION","page":"/","action":"open page","target":"base_url","input_summary":"none","before":"browser new context","expected":"application visible","observed":"REPLACE_REAL_OBSERVATION","verdict":"NOT_RUN","evidence":[],"bug_ids":[]}

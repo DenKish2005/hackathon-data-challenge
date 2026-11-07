@@ -1,0 +1,2 @@
+scenario_id,priority,category,mode,status,executed_at,notes,bug_ids,evidence
+BOOT-01,P0,BOOT,INTEGRATION,NOT_RUN,,Not executed yet,,

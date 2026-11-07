@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "run": {
+    "id": "REPLACE_WITH_UTC_RUN_ID",
+    "base_url": "http://127.0.0.1:8000",
+    "commit": "REPLACE_WITH_COMMIT_SHA",
+    "mode": "INTEGRATION",
+    "browser": "REPLACE_WITH_BROWSER_VERSION",
+    "os": "REPLACE_WITH_OS",
+    "data_classification": "synthetic"
+  },
+  "bugs": []
+}
