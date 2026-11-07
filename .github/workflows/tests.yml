@@ -22,3 +22,35 @@ jobs:
       - run: tokenops-demo --scenario all
         env:
           REDIS_URL: redis://127.0.0.1:6379/0
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      BASE_URL: http://127.0.0.1:4173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Select installed Chromium
+        run: |
+          node --input-type=module <<'JS'
+          import { chromium } from '@playwright/test';
+          import { appendFileSync } from 'node:fs';
+          appendFileSync(process.env.GITHUB_ENV, `CHROMIUM_PATH=${chromium.executablePath()}\n`);
+          JS
+      - name: Start production preview
+        run: |
+          npm run preview -- --port 4173 > /tmp/cqa-preview.log 2>&1 &
+          curl --fail --retry 20 --retry-connrefused --retry-delay 1 "$BASE_URL/" > /dev/null
+      - run: node tests/smoke.mjs
+      - run: node tests/evaluation.mjs
+      - run: node tests/reliability.mjs
+      - run: node --test ../tests/vercel_proxy.test.cjs

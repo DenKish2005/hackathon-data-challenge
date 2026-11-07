@@ -1,11 +1,6 @@
-name: Publish Freedom CQA to GitHub Pages
+name: Legacy GitHub Pages (manual)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-pages.yml"
   workflow_dispatch:
 
 permissions:
