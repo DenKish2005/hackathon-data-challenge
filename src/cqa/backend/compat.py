@@ -16,6 +16,7 @@ from cqa.backend.models import (
     Conversation,
     Evaluation,
     EvaluationJob,
+    ReviewHistory,
     WorkspaceAppeal,
     WorkspaceChecklist,
     WorkspaceState,
@@ -28,6 +29,7 @@ from cqa.backend.services.dataset_importer import Conflict, fetch_organizer, imp
 from cqa.backend.services.evaluation_jobs import create_job, inputs
 from cqa.infra.orchestrator.pipeline import Finding
 from cqa.service import EvaluationRequest
+from cqa.service import Message as LegacyMessage
 from cqa.workspace import default_checklist
 
 
@@ -74,9 +76,13 @@ def evaluation_view(session, row, messages=None, *, reviewed=False, cached=False
                 "answer": f["answer"],
                 "reason": f["explanation"],
                 "evidenceId": ids[refs[0]] if refs else "",
-                "quote": extra.get("quote", ""),
+                "quote": extra.get("quote", "")
+                if extra.get("evidenceId") in f["message_ids"]
+                else "",
                 "checkedMessageIds": [ids[mid] for mid in f["checked_message_ids"]],
-                "confidence": extra.get("confidence"),
+                "confidence": extra.get("confidence")
+                if extra.get("answer") == f["answer"]
+                else None,
             }
         )
     alias = session.scalar(
@@ -104,7 +110,7 @@ def evaluation_view(session, row, messages=None, *, reviewed=False, cached=False
         "score": result["score"],
         "critical": result["critical"],
         "tokens": sum(u.get("input_tokens", 0) + u.get("output_tokens", 0) for u in usage)
-        if usage
+        if any("input_tokens" in u or "output_tokens" in u for u in usage)
         else None,
         "passes": len(calls),
         "metadata": result["metadata"],
@@ -132,7 +138,19 @@ def ensure_checklist(db, session, criteria, ui_version):
         .order_by(Checklist.version.desc())
         .limit(1)
     )
-    if latest is None or latest.criteria != values:
+    already_mapped = (
+        latest is not None
+        and session.scalar(
+            select(WorkspaceChecklist.ui_version)
+            .where(
+                WorkspaceChecklist.checklist_id == latest.checklist_id,
+                WorkspaceChecklist.checklist_version == latest.version,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    if latest is None or latest.criteria != values or already_mapped:
         row = create_checklist(
             db,
             request.model_copy(update={"base_version": latest.version if latest else None}),
@@ -150,6 +168,11 @@ def ensure_checklist(db, session, criteria, ui_version):
 
 
 def import_dialog(db, session, dialog):
+    messages = [LegacyMessage.model_validate(m) for m in dialog["messages"]]
+    if not 1 <= len(messages) <= 500 or len({m.id for m in messages}) != len(messages):
+        raise ValueError("Invalid message identifiers")
+    if dialog["channel"] not in ("chat", "call"):
+        raise ValueError("Invalid channel")
     cid = dialog["id"]
     existing = session.get(Conversation, cid)
     if existing:
@@ -231,7 +254,9 @@ def sync_appeal(db, pipeline, session, value, dialogs):
     if value["status"] == "resolved":
         reason = value["decision"]
         if appeal.status == "reviewed":
-            final = final_result(session, row)
+            final = session.scalar(
+                select(ReviewHistory).where(ReviewHistory.appeal_id == appeal.appeal_id)
+            ).final_result
             answer = next(
                 f["answer"] for f in final["findings"] if f["criterion_id"] == appeal.criterion_id
             )
@@ -348,9 +373,12 @@ def workspace_view(db):
             original = next(
                 f for f in row.result_json["findings"] if f["criterion_id"] == appeal.criterion_id
             )
+            review = session.scalar(
+                select(ReviewHistory).where(ReviewHistory.appeal_id == appeal.appeal_id)
+            )
             current = next(
                 f
-                for f in final_result(session, row)["findings"]
+                for f in (review.final_result if review else final_result(session, row))["findings"]
                 if f["criterion_id"] == appeal.criterion_id
             )
             key = mappings.get(appeal.appeal_id, appeal.appeal_id)
@@ -514,7 +542,7 @@ def install_compat(app, db, pipeline, settings, transport=None):
                                 select(Evaluation).where(Evaluation.job_id == job.job_id)
                             )
                             result = evaluation_view(
-                                session, row, dialog["messages"], cached=cached
+                                session, row, dialog["messages"], reviewed=True, cached=cached
                             )
                             result["checklistVersion"] = request.version
                             return result
@@ -524,6 +552,6 @@ def install_compat(app, db, pipeline, settings, transport=None):
                 504, {"message": "Job still queued; poll job endpoint", "job_id": job.job_id}
             ) from exc
 
-    static = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    static = Path(settings.frontend_dir).resolve()
     if static.exists():
         app.mount("/", StaticFiles(directory=static, html=True), name="frontend")

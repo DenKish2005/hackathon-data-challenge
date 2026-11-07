@@ -102,7 +102,10 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
         provider = build_provider(settings)
         evaluator = MockEvaluator() if provider.is_mock else ProviderEvaluator(provider)
         pipeline = Pipeline(
-            evaluator, critic=None if provider.is_mock else ProviderCritic(evaluator)
+            evaluator,
+            critic=ProviderCritic(evaluator)
+            if not provider.is_mock and settings.critic_enabled
+            else None,
         )
     worker = Worker(db, pipeline, settings)
 

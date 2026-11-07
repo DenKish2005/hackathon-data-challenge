@@ -88,6 +88,19 @@ def test_asgi_alias_is_identical():
     assert api.app is foundation_app
 
 
+def test_single_entry_point_hosts_frontend_and_api(tmp_path):
+    static = tmp_path / "frontend"
+    static.mkdir()
+    (static / "index.html").write_text("<html>synthetic frontend host</html>")
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'static.db'}", frontend_dir=str(static)
+    )
+    with TestClient(create_app(settings)) as client:
+        assert "synthetic frontend host" in client.get("/").text
+        assert client.get("/api/health").json()["is_mock"] is True
+        assert client.get("/docs").status_code == 200
+
+
 def test_legacy_and_canonical_endpoints_share_jobs_scores_reviews_and_restart(tmp_path):
     app, calls, settings = synthetic_app(tmp_path)
     with TestClient(app) as client:
@@ -140,6 +153,7 @@ def test_legacy_and_canonical_endpoints_share_jobs_scores_reviews_and_restart(tm
         canonical = client.get(f"/api/evaluations/{original['evaluationId']}").json()
         assert canonical["result_json"]["score"] == 0
         assert canonical["final_result_json"]["score"] == 10
+        assert client.post("/api/evaluate", json=request).json()["score"] == 10
         assert client.get("/api/workspace").json()["data"]["dialogs"][0]["score"] == 10
         assert client.get(f"/api/history/{dialog['id']}").json()[0]["score"] == 0
         persisted = client.get("/api/workspace").json()
@@ -250,3 +264,73 @@ def test_workspace_ui_import_and_explicit_saved_version(tmp_path):
             ).status_code
             == 200
         )
+
+
+def test_new_ui_version_with_same_criteria_still_creates_a_new_job(tmp_path):
+    app, calls, _ = synthetic_app(tmp_path)
+    with TestClient(app) as client:
+        workspace = import_one(client)
+        first = client.post("/api/evaluate", json=evaluate_request(workspace)).json()
+        workspace["data"]["version"] = 2
+        assert client.put("/api/workspace", json=workspace).status_code == 200
+        second = client.post("/api/evaluate", json=evaluate_request(workspace)).json()
+        assert first["evaluationId"] != second["evaluationId"]
+        assert second["foundationChecklistVersion"] == 2
+        assert len(calls) == 4
+
+
+def test_critic_switch_changes_pipeline_cache_configuration(tmp_path):
+    options = dict(
+        database_url=f"sqlite:///{tmp_path / 'toggle.db'}",
+        llm_provider="ollama",
+        llm_base_url="http://localhost:11434",
+        llm_model="test",
+    )
+    enabled = create_app(Settings(**options), worker_enabled=False)
+    disabled = create_app(Settings(**options, critic_enabled=False), worker_enabled=False)
+    assert enabled.state.pipeline.critic is not None
+    assert disabled.state.pipeline.critic is None
+    assert enabled.state.pipeline.configuration() != disabled.state.pipeline.configuration()
+    enabled.state.db.engine.dispose()
+    disabled.state.db.engine.dispose()
+
+
+def test_later_opposing_review_does_not_rewrite_or_block_earlier_review(tmp_path):
+    app, _, _ = synthetic_app(tmp_path)
+    with TestClient(app) as client:
+        workspace = import_one(client)
+        response = client.post("/api/evaluate", json=evaluate_request(workspace))
+        assert response.status_code == 200
+        workspace = client.get("/api/workspace").json()
+        dialog = workspace["data"]["dialogs"][0]
+        workspace["data"]["appeals"] = [
+            {
+                "id": "first",
+                "dialogId": dialog["id"],
+                "criterionId": "1",
+                "comment": "First review",
+                "status": "resolved",
+                "newAnswer": "Да",
+                "decision": "First human decision",
+                "evidenceId": "m1",
+            }
+        ]
+        assert client.put("/api/workspace", json=workspace).status_code == 200
+        workspace = client.get("/api/workspace").json()
+        workspace["data"]["appeals"].append(
+            {
+                "id": "second",
+                "dialogId": dialog["id"],
+                "criterionId": "1",
+                "comment": "Second review",
+                "status": "resolved",
+                "newAnswer": "Нет",
+                "decision": "Second human decision",
+                "evidenceId": "m1",
+            }
+        )
+        assert client.put("/api/workspace", json=workspace).status_code == 200
+        workspace = client.get("/api/workspace").json()
+        assert [a["newAnswer"] for a in workspace["data"]["appeals"]] == ["Да", "Нет"]
+        assert workspace["data"]["dialogs"][0]["score"] == 0
+        assert client.put("/api/workspace", json=workspace).status_code == 200

@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Settings:
+    frontend_dir: str = field(
+        default_factory=lambda: os.getenv("CQA_FRONTEND_DIR", "frontend/dist")
+    )
     database_url: str = field(
         default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///.runtime/cqa-foundation.db")
     )
@@ -46,6 +49,9 @@ class Settings:
     )
     llm_output_limit: int = field(
         default_factory=lambda: int(os.getenv("LLM_OUTPUT_LIMIT", "8000"))
+    )
+    critic_enabled: bool = field(
+        default_factory=lambda: os.getenv("CQA_ENABLE_CRITIC", "true") == "true"
     )
     prompt_version: str = "foundation-v1"
 

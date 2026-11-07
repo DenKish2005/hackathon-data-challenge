@@ -21,7 +21,8 @@ def build_provider(settings):
         if not settings.llm_model or not settings.llm_base_url:
             raise ValueError("Ollama requires LLM_MODEL and LLM_BASE_URL")
         if (
-            urlsplit(settings.llm_base_url).hostname not in ("localhost", "127.0.0.1", "::1")
+            urlsplit(settings.llm_base_url).hostname
+            not in ("localhost", "127.0.0.1", "::1", "host.docker.internal")
             and not settings.external_data_allowed
         ):
             raise ValueError(
