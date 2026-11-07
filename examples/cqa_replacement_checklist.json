@@ -1,0 +1,12 @@
+[
+  {
+    "id": "7", "title": "Next client action",
+    "description": "Did the operator provide an explicit useful sequence for the next client action? 4=clear sequence, 2=partial instructions, 0=none.",
+    "weight": 37, "type": "scale", "scale": [0, 2, 4], "naAllowed": false, "naCondition": ""
+  },
+  {
+    "id": "new-polite", "title": "Professional communication",
+    "description": "Did the operator communicate professionally?",
+    "weight": 13, "type": "binary", "scale": [], "naAllowed": false, "naCondition": ""
+  }
+]

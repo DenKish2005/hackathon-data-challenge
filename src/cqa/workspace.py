@@ -1,9 +1,11 @@
 """Dataset normalization and optimistic persistence shared by API and batch CLI."""
 
+import copy
 import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from cqa.normalization import normalize_messages
 from cqa.service import Criterion, EvaluationRequest
 
 
@@ -93,6 +95,8 @@ def normalize_records(payload, criteria, version, existing=()):
                 for i, m in enumerate(transcript)
             ],
         )
+        normalized, changes = normalize_messages(request.messages)
+        request = request.model_copy(update={"messages": normalized})
         ids.add(cid)
         dialogs.append(
             {
@@ -112,6 +116,7 @@ def normalize_records(payload, criteria, version, existing=()):
                 "source": "import",
                 "messages": [m.model_dump() for m in request.messages],
                 "audio_url": r.get("audio_url"),
+                **({"originalRecord": copy.deepcopy(r)} if changes else {}),
             }
         )
     return dialogs
