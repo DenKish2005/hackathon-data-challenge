@@ -1,0 +1,42 @@
+{
+  "mode": "synthetic mock only, no LLM throughput claim",
+  "first": {
+    "selected": 65,
+    "reported": 65,
+    "completed": 65,
+    "failed": 0,
+    "unfinished": 0,
+    "cached": 0,
+    "success_rate": 1.0,
+    "elapsed_seconds": 6.671,
+    "fresh_jobs_per_minute": 584.6199969941134,
+    "estimated_65_seconds": 6.671000000089407,
+    "llm_calls": 0,
+    "http_attempts": 0,
+    "retries": 0,
+    "invalid_responses": 0,
+    "failure_reasons": {},
+    "input_tokens": null,
+    "output_tokens": null
+  },
+  "after_process_restart": {
+    "selected": 65,
+    "reported": 65,
+    "completed": 65,
+    "failed": 0,
+    "unfinished": 0,
+    "cached": 65,
+    "success_rate": 1.0,
+    "elapsed_seconds": 1.719,
+    "fresh_jobs_per_minute": null,
+    "estimated_65_seconds": null,
+    "llm_calls": 0,
+    "http_attempts": 0,
+    "retries": 0,
+    "invalid_responses": 0,
+    "failure_reasons": {},
+    "input_tokens": null,
+    "output_tokens": null
+  },
+  "same_evaluation_ids": true
+}

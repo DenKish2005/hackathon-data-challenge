@@ -2,11 +2,19 @@
 
 import hashlib
 import json
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from cqa.backend.models import Checklist, Conversation, Evaluation, EvaluationJob, Message
+from cqa.backend.models import (
+    Checklist,
+    Conversation,
+    Evaluation,
+    EvaluationJob,
+    JobMetrics,
+    Message,
+)
 from cqa.backend.schemas import ChecklistView, ConversationDetail, MessageView
 from cqa.service import RULES
 
@@ -32,23 +40,32 @@ def inputs(session, conversation_id, checklist_id, version):
     return detail, ChecklistView.model_validate(checklist)
 
 
+def job_key(conversation, checklist, pipeline, settings):
+    content = {
+        "conversation": conversation.model_dump(mode="json"),
+        "checklist": checklist.model_dump(mode="json"),
+        "pipeline": pipeline.configuration(),
+        "prompt_version": settings.prompt_version,
+        "rules": RULES,
+    }
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
 def create_job(db, pipeline, settings, request):
     with db.sessions() as session:
         conversation, checklist = inputs(
             session, request.conversation_id, request.checklist_id, request.checklist_version
         )
-        content = {
-            "conversation": conversation.model_dump(mode="json"),
-            "checklist": checklist.model_dump(mode="json"),
-            "pipeline": pipeline.configuration(),
-            "prompt_version": settings.prompt_version,
-            "rules": RULES,
-        }
-        key = hashlib.sha256(
-            json.dumps(content, sort_keys=True, ensure_ascii=False).encode()
-        ).hexdigest()
-        existing = session.scalar(select(EvaluationJob).where(EvaluationJob.cache_key == key))
-        if existing:
+        key = job_key(conversation, checklist, pipeline, settings)
+        existing = session.scalar(
+            select(EvaluationJob)
+            .where((EvaluationJob.cache_key == key) | EvaluationJob.cache_key.startswith(key + ":"))
+            .order_by(EvaluationJob.created_at.desc())
+            .limit(1)
+        )
+        if existing and not request.force:
             if request.retry_failed and existing.status == "failed":
                 existing.status = "pending"
                 existing.error_message = None
@@ -56,7 +73,7 @@ def create_job(db, pipeline, settings, request):
                 session.commit()
             return existing
         job = EvaluationJob(
-            cache_key=key,
+            cache_key=key if not request.force else key + ":" + uuid4().hex,
             conversation_id=conversation.conversation_id,
             checklist_id=checklist.checklist_id,
             checklist_version=checklist.version,
@@ -89,4 +106,13 @@ def job_view(session, job):
             "created_at",
             "updated_at",
         )
-    } | {"evaluation_id": evaluation_id}
+    } | {
+        "evaluation_id": evaluation_id,
+        "metrics": list(
+            session.scalars(
+                select(JobMetrics.metrics)
+                .where(JobMetrics.job_id == job.job_id)
+                .order_by(JobMetrics.created_at)
+            )
+        ),
+    }

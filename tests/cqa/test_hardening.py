@@ -10,6 +10,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cqa import api
+from cqa.backend.config import Settings
+from cqa.infra.llm.ollama import OllamaProvider
+from cqa.infra.llm.openai_compatible import OpenAICompatibleProvider
+from cqa.infra.orchestrator.pipeline import Pipeline, ProviderCritic, ProviderEvaluator
 from cqa.normalization import repair_mojibake
 from cqa.prompts import build_messages, critic_instruction, profile
 from cqa.service import (
@@ -481,23 +485,29 @@ async def test_inference_settings_invalidate_cache(tmp_path, setting, value):
     assert not second["cached"] and first["inputHash"] != second["inputHash"]
 
 
-def test_api_legacy_contract_and_browser_normalization(tmp_path, monkeypatch):
+def test_api_legacy_contract_and_browser_normalization(tmp_path):
     raw = "Сәлеметсіз бе! Мен Алия.".encode().decode("latin-1")
     req = request().model_dump()
     req["messages"][0]["text"] = raw
-    monkeypatch.setattr(
-        api,
-        "evaluator",
-        Evaluator(
-            Store(str(tmp_path / "db")),
-            httpx.MockTransport(
-                lambda req: httpx.Response(
-                    200, json={"message": {"content": analysis().model_dump_json()}}
-                )
-            ),
-        ),
+
+    def respond(req):
+        payload = json.loads(json.loads(req.content)["messages"][1]["content"])["evaluation"]
+        value = analysis().model_dump()
+        for finding in value["results"]:
+            finding["evidenceId"] = payload["messages"][0]["id"]
+            finding["checkedMessageIds"] = [payload["messages"][0]["id"]]
+        return httpx.Response(
+            200,
+            json={"done": True, "done_reason": "stop", "message": {"content": json.dumps(value)}},
+        )
+
+    provider = OllamaProvider(
+        "http://127.0.0.1:11434", "synthetic-contract", transport=httpx.MockTransport(respond)
     )
-    with TestClient(api.app) as client:
+    evaluator = ProviderEvaluator(provider)
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'foundation.db'}", timeout=5)
+    app = api.create_app(settings, Pipeline(evaluator, critic=ProviderCritic(evaluator)))
+    with TestClient(app) as client:
         response = client.post("/api/evaluate", json=req)
         assert response.status_code == 200
         value = response.json()
@@ -509,6 +519,127 @@ def test_api_legacy_contract_and_browser_normalization(tmp_path, monkeypatch):
         assert (
             client.get("/api/history/unseen-1").json()[0]["evaluationId"] == value["evaluationId"]
         )
+
+
+@pytest.mark.parametrize("provider_class", [OllamaProvider, OpenAICompatibleProvider])
+def test_foundation_adapter_preserves_repairs_absence_and_additional_evidence(
+    tmp_path, provider_class
+):
+    payload = request().model_dump()
+    payload["messages"].append(
+        {"id": "client-thanks", "role": "client", "text": "Thanks", "time": "00:03"}
+    )
+    calls = []
+
+    def respond(req):
+        body = json.loads(req.content)
+        calls.append(body)
+        data = json.loads(body["messages"][1]["content"])["evaluation"]
+        refs = {"m1": data["messages"][0]["id"], "client": data["messages"][1]["id"]}
+        value = analysis().model_dump()
+        requested = {c["id"] for c in data["criteria"]}
+        value["results"] = [r for r in value["results"] if r["criterionId"] in requested]
+        for finding in value["results"]:
+            finding.update(evidenceId=refs["m1"], checkedMessageIds=list(refs.values()))
+            if finding["criterionId"] == "g":
+                finding["quote"] = "Invented quote" if len(calls) == 1 else "Мен Алия"
+                finding["evidence"] = [
+                    {
+                        "messageId": refs["client"],
+                        "role": "client",
+                        "quote": "Thanks",
+                        "relevance": "Client acknowledgment",
+                    }
+                ]
+            if finding["criterionId"] == "s":
+                finding["answer"] = "10" if len(calls) == 3 else "15"
+                finding["uncertaintyNotes"] = ["No authoritative knowledge supplied"]
+            if finding["criterionId"] == "f":
+                finding.update(evidenceBasis="absence", evidenceId="", quote="")
+        if provider_class is OpenAICompatibleProvider:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"finish_reason": "stop", "message": {"content": json.dumps(value)}}
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"done": True, "done_reason": "stop", "message": {"content": json.dumps(value)}},
+        )
+
+    provider = provider_class(
+        "http://localhost:11434", "synthetic-contract", transport=httpx.MockTransport(respond)
+    )
+    evaluator = ProviderEvaluator(provider)
+    app = api.create_app(
+        Settings(database_url=f"sqlite:///{tmp_path / 'evidence.db'}", timeout=5),
+        Pipeline(evaluator, critic=ProviderCritic(evaluator)),
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/evaluate", json=payload)
+        assert response.status_code == 200, response.text
+        value = response.json()
+        assert value["passes"] == 3
+        assert value["results"][0]["evidence"][0]["messageId"] == "client-thanks"
+        assert value["results"][1]["answer"] == 10
+        assert value["results"][-1]["evidenceBasis"] == "absence"
+        assert value["results"][-1]["evidenceId"] == value["results"][-1]["quote"] == ""
+        assert value["reviewRecommended"] and value["scoreProvisional"]
+        changes = value["metadata"]["criticChanges"]
+        assert [c["criterionId"] for c in changes if c["answerChanged"]] == ["s"]
+        repaired = json.loads(calls[1]["messages"][1]["content"])["evaluation"]
+        assert [c["id"] for c in repaired["criteria"]] == ["g"]
+        if provider_class is OllamaProvider:
+            assert calls[1]["format"]["properties"]["results"]["maxItems"] == 1
+        else:
+            prompt = calls[1]["messages"][0]["content"]
+            schema = json.loads(prompt.split("Return JSON using this schema:\n")[1])
+            assert schema["properties"]["results"]["maxItems"] == 1
+            assert calls[1]["response_format"] == {"type": "json_object"}
+        assert client.post("/api/evaluate", json=payload).json()["cached"]
+        assert len(calls) == 3
+
+
+def test_foundation_criterion_replacement_uses_active_prompt_and_wire_scale(tmp_path):
+    req = original(6)
+    req.criteria[0].title = "Next action"
+    req.criteria[0].description = "Explain a clear next action: 4=complete, 2=partial, 0=missing."
+    req.criteria[0].type = "scale"
+    req.criteria[0].scale = [0.0, 2.0, 4.0]
+    req.criteria[0].naAllowed = False
+    req.criteria[0].naCondition = ""
+
+    def respond(incoming):
+        body = json.loads(incoming.content)
+        content = json.loads(body["messages"][1]["content"])
+        assert content["criterionGuidance"] == []
+        assert content["evaluation"]["criteria"][0]["allowedAnswers"] == ["0", "2", "4"]
+        assert "summary OR offer" not in str(body["messages"])
+        assert "interruptionPreventedClosing" not in str(body["messages"])
+        value = finding(req, "4").model_dump()
+        mid = content["evaluation"]["messages"][0]["id"]
+        value["results"][0].update(evidenceId=mid, checkedMessageIds=[mid])
+        return httpx.Response(
+            200,
+            json={"done": True, "done_reason": "stop", "message": {"content": json.dumps(value)}},
+        )
+
+    provider = OllamaProvider(
+        "http://localhost:11434", "synthetic-contract", transport=httpx.MockTransport(respond)
+    )
+    evaluator = ProviderEvaluator(provider)
+    app = api.create_app(
+        Settings(database_url=f"sqlite:///{tmp_path / 'replacement.db'}", timeout=5),
+        Pipeline(evaluator, critic=ProviderCritic(evaluator)),
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/evaluate", json=req.model_dump())
+        assert response.status_code == 200, response.text
+        assert response.json()["results"][0]["answer"] == 4
+        assert response.json()["passes"] == 2
 
 
 async def test_unrepaired_evidence_never_persists(tmp_path):

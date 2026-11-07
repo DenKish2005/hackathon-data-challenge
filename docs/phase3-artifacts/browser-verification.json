@@ -1,0 +1,21 @@
+{
+  "provider": "ollama",
+  "model": "qwen3:4b",
+  "critic": false,
+  "checks": [
+    "button -> live LLM -> eight criteria -> score -> evidence -> SQLite",
+    "process restart + fresh browser context restore saved result",
+    "edit criterion in UI -> new evaluation; old result/version preserved"
+  ],
+  "first": {
+    "evaluationId": "567bbc151ff0465a9afc9133c77a148e",
+    "score": 65,
+    "seconds": 88.044509
+  },
+  "second": {
+    "evaluationId": "397a89bc670c4ccfb0db9c5192ba1668",
+    "score": 65,
+    "seconds": 90.7922384
+  },
+  "success": true
+}

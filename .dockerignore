@@ -3,6 +3,13 @@
 .uv-cache
 .runtime
 .env
+.env.*
+*.db
+*.db-*
+*.sqlite3
+*.sqlite3-*
+**/cqa_dev*.json
+**/node_modules
 graphify-out
 __pycache__
 *.egg-info

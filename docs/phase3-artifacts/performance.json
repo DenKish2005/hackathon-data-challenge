@@ -1,0 +1,457 @@
+{
+  "model": "qwen3:4b Q4_K_M",
+  "model_digest": "359d7dd4bcda",
+  "gpu": "RTX 3060 Laptop 6144 MiB",
+  "system_ram_gib": 31.26,
+  "private_dialogues_included": false,
+  "scenarios": [
+    {
+      "run": "20261107T133843507543",
+      "configuration": {
+        "model": "qwen3:4b",
+        "context": 16384,
+        "output_limit": 4096,
+        "critic": false,
+        "parallel": 1,
+        "count": 1,
+        "fixture": "synthetic-three-message-ru-v1",
+        "cold_model_forced": false
+      },
+      "summary": {
+        "selected": 1,
+        "reported": 1,
+        "completed": 1,
+        "failed": 0,
+        "unfinished": 0,
+        "cached": 0,
+        "success_rate": 1.0,
+        "elapsed_seconds": 88.562,
+        "fresh_jobs_per_minute": 0.6774914748989409,
+        "estimated_65_seconds": 5756.53,
+        "llm_calls": 1,
+        "http_attempts": 1,
+        "retries": 0,
+        "invalid_responses": 0,
+        "failure_reasons": {},
+        "input_tokens": 2190,
+        "output_tokens": 2003,
+        "load_seconds": 4.9938539,
+        "queue_seconds_total": 0.116152,
+        "gpu_peak_mib": 4215,
+        "system_ram_peak_gib": 24.54427719116211
+      },
+      "results": [
+        {
+          "conversation_id": "perf-0",
+          "status": "completed",
+          "cached": false,
+          "job_id": "6e1e5a4c2157471fbc8a7456fb41fcba",
+          "evaluation_id": "d44f831275484728b42dd0ba49ad2e65",
+          "metrics": [
+            {
+              "calls": [
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 2190,
+                    "output_tokens": 2003
+                  },
+                  "provider_wait_seconds": 0.406039,
+                  "load_duration_seconds": 4.9938539,
+                  "prompt_eval_duration_seconds": 0.977643,
+                  "eval_duration_seconds": 81.388209,
+                  "total_duration_seconds": 87.3877252,
+                  "duration_seconds": 87.800259,
+                  "status": "completed"
+                }
+              ],
+              "status": "completed",
+              "queue_seconds": 0.116152,
+              "duration_seconds": 87.818505
+            }
+          ],
+          "score": 60.0,
+          "wait_seconds": 88.063
+        }
+      ],
+      "resource_scope": "whole-system RAM and summed NVIDIA VRAM; not process-exclusive",
+      "sample_count": 44
+    },
+    {
+      "run": "20261107T134515908661",
+      "configuration": {
+        "model": "qwen3:4b",
+        "context": 14336,
+        "output_limit": 3072,
+        "critic": false,
+        "parallel": 1,
+        "count": 1,
+        "fixture": "synthetic-three-message-ru-v1",
+        "cold_model_forced": false
+      },
+      "summary": {
+        "selected": 1,
+        "reported": 1,
+        "completed": 0,
+        "failed": 1,
+        "unfinished": 0,
+        "cached": 0,
+        "success_rate": 0.0,
+        "elapsed_seconds": 64.813,
+        "fresh_jobs_per_minute": null,
+        "estimated_65_seconds": null,
+        "llm_calls": 1,
+        "http_attempts": 1,
+        "retries": 0,
+        "invalid_responses": 1,
+        "failure_reasons": {
+          "validation_error": 1
+        },
+        "input_tokens": 2190,
+        "output_tokens": 2056,
+        "load_seconds": 7.0397406,
+        "queue_seconds_total": 0.088125,
+        "gpu_peak_mib": 4217,
+        "system_ram_peak_gib": 25.452571868896484
+      },
+      "results": [
+        {
+          "conversation_id": "perf-0",
+          "status": "failed",
+          "cached": false,
+          "job_id": "42a9e1a0cb6c49b6975936498c5ed57d",
+          "evaluation_id": null,
+          "metrics": [
+            {
+              "calls": [
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 2190,
+                    "output_tokens": 2056
+                  },
+                  "provider_wait_seconds": 0.378504,
+                  "load_duration_seconds": 7.0397406,
+                  "prompt_eval_duration_seconds": 0.910384,
+                  "eval_duration_seconds": 55.85425,
+                  "total_duration_seconds": 63.8320404,
+                  "duration_seconds": 64.217799,
+                  "status": "completed"
+                }
+              ],
+              "status": "failed",
+              "queue_seconds": 0.088125,
+              "error_code": "validation_error",
+              "duration_seconds": 64.231149
+            }
+          ],
+          "error": "Evaluation failed",
+          "wait_seconds": 64.406
+        }
+      ],
+      "resource_scope": "whole-system RAM and summed NVIDIA VRAM; not process-exclusive",
+      "sample_count": 32
+    },
+    {
+      "run": "20261107T134625873404",
+      "configuration": {
+        "model": "qwen3:4b",
+        "context": 24576,
+        "output_limit": 4096,
+        "critic": true,
+        "parallel": 1,
+        "count": 1,
+        "fixture": "synthetic-three-message-ru-v1",
+        "cold_model_forced": false
+      },
+      "summary": {
+        "selected": 1,
+        "reported": 1,
+        "completed": 1,
+        "failed": 0,
+        "unfinished": 0,
+        "cached": 0,
+        "success_rate": 1.0,
+        "elapsed_seconds": 402.281,
+        "fresh_jobs_per_minute": 0.1491494751181388,
+        "estimated_65_seconds": 26148.265000000003,
+        "llm_calls": 2,
+        "http_attempts": 2,
+        "retries": 0,
+        "invalid_responses": 0,
+        "failure_reasons": {},
+        "input_tokens": 6368,
+        "output_tokens": 4029,
+        "load_seconds": 7.267823,
+        "queue_seconds_total": 0.081353,
+        "gpu_peak_mib": 4189,
+        "system_ram_peak_gib": 25.664146423339844
+      },
+      "results": [
+        {
+          "conversation_id": "perf-0",
+          "status": "completed",
+          "cached": false,
+          "job_id": "13230553f40a48b89091c28c47bc90c8",
+          "evaluation_id": "7aa035668e69499a9ffcd9777a6ab25e",
+          "metrics": [
+            {
+              "calls": [
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 2190,
+                    "output_tokens": 2031
+                  },
+                  "provider_wait_seconds": 0.406486,
+                  "load_duration_seconds": 7.2558279,
+                  "prompt_eval_duration_seconds": 1.224335,
+                  "eval_duration_seconds": 165.23791,
+                  "total_duration_seconds": 173.7457564,
+                  "duration_seconds": 174.1593,
+                  "status": "completed"
+                },
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 4178,
+                    "output_tokens": 1998
+                  },
+                  "provider_wait_seconds": 0.605211,
+                  "load_duration_seconds": 0.0119951,
+                  "prompt_eval_duration_seconds": 1.359686,
+                  "eval_duration_seconds": 225.363597,
+                  "total_duration_seconds": 226.7695086,
+                  "duration_seconds": 227.384282,
+                  "status": "completed"
+                }
+              ],
+              "status": "completed",
+              "queue_seconds": 0.081353,
+              "duration_seconds": 401.563694
+            }
+          ],
+          "score": 65.0,
+          "wait_seconds": 401.828
+        }
+      ],
+      "resource_scope": "whole-system RAM and summed NVIDIA VRAM; not process-exclusive",
+      "sample_count": 191
+    },
+    {
+      "run": "20261107T135313221870",
+      "configuration": {
+        "model": "qwen3:4b",
+        "context": 16384,
+        "output_limit": 4096,
+        "critic": false,
+        "parallel": 2,
+        "count": 2,
+        "fixture": "synthetic-three-message-ru-v1",
+        "cold_model_forced": false,
+        "python_version": "3.12.10",
+        "platform": "Windows",
+        "cpu_count": 16,
+        "git_revision": "1e52ba7fd6c1d516e8698d26535f0a6b14ae25e5"
+      },
+      "summary": {
+        "selected": 2,
+        "reported": 2,
+        "completed": 1,
+        "failed": 1,
+        "unfinished": 0,
+        "cached": 0,
+        "success_rate": 0.5,
+        "elapsed_seconds": 183.969,
+        "fresh_jobs_per_minute": 0.32614190434257945,
+        "estimated_65_seconds": 11957.984999999999,
+        "llm_calls": 2,
+        "http_attempts": 2,
+        "retries": 0,
+        "invalid_responses": 1,
+        "failure_reasons": {
+          "validation_error": 1
+        },
+        "input_tokens": 4377,
+        "output_tokens": 4136,
+        "load_seconds": 12.7212792,
+        "queue_seconds_total": 0.642497,
+        "gpu_peak_mib": 4215,
+        "system_ram_peak_gib": 27.542816162109375
+      },
+      "results": [
+        {
+          "conversation_id": "perf-1",
+          "status": "failed",
+          "cached": false,
+          "job_id": "3afaa06dc337434f9bb27896104856cb",
+          "evaluation_id": null,
+          "metrics": [
+            {
+              "calls": [
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 2187,
+                    "output_tokens": 2144
+                  },
+                  "provider_wait_seconds": 0.447166,
+                  "last_http_status": 200,
+                  "load_duration_seconds": 6.3586386,
+                  "prompt_eval_duration_seconds": 0.972542,
+                  "eval_duration_seconds": 96.097002,
+                  "total_duration_seconds": 103.4559339,
+                  "duration_seconds": 104.387447,
+                  "status": "completed"
+                }
+              ],
+              "status": "failed",
+              "queue_seconds": 0.093471,
+              "error_code": "validation_error",
+              "duration_seconds": 104.405726
+            }
+          ],
+          "error": "Result failed schema or evidence validation; no evaluation saved",
+          "wait_seconds": 104.703
+        },
+        {
+          "conversation_id": "perf-0",
+          "status": "completed",
+          "cached": false,
+          "job_id": "748d84efd3214fde9303a91ac217beed",
+          "evaluation_id": "f360ef405aca49fcbee2e3807116fc36",
+          "metrics": [
+            {
+              "calls": [
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 2190,
+                    "output_tokens": 1992
+                  },
+                  "provider_wait_seconds": 0.459674,
+                  "last_http_status": 200,
+                  "load_duration_seconds": 6.3626406,
+                  "prompt_eval_duration_seconds": 0.674648,
+                  "eval_duration_seconds": 77.943806,
+                  "total_duration_seconds": 182.305361,
+                  "duration_seconds": 182.775688,
+                  "status": "completed"
+                }
+              ],
+              "status": "completed",
+              "queue_seconds": 0.549026,
+              "duration_seconds": 182.795087
+            }
+          ],
+          "score": 60.0,
+          "wait_seconds": 183.469
+        }
+      ],
+      "resource_scope": "whole-system RAM and summed NVIDIA VRAM; not process-exclusive",
+      "sample_count": 88
+    },
+    {
+      "run": "20261107T135622295232",
+      "configuration": {
+        "model": "qwen3:4b",
+        "context": 12288,
+        "output_limit": 1024,
+        "critic": false,
+        "parallel": 1,
+        "count": 1,
+        "fixture": "synthetic-three-message-ru-v1",
+        "cold_model_forced": false,
+        "python_version": "3.12.10",
+        "platform": "Windows",
+        "cpu_count": 16,
+        "git_revision": "ca0bbdd7c6a33388f141989e06ae8da595e50aff"
+      },
+      "summary": {
+        "selected": 1,
+        "reported": 1,
+        "completed": 0,
+        "failed": 1,
+        "unfinished": 0,
+        "cached": 0,
+        "success_rate": 0.0,
+        "elapsed_seconds": 23.766,
+        "fresh_jobs_per_minute": null,
+        "estimated_65_seconds": null,
+        "llm_calls": 1,
+        "http_attempts": 1,
+        "retries": 0,
+        "invalid_responses": 1,
+        "failure_reasons": {
+          "invalid_output": 1
+        },
+        "input_tokens": 2190,
+        "output_tokens": 1024,
+        "load_seconds": 5.9030967,
+        "queue_seconds_total": 0.076803,
+        "gpu_peak_mib": 4237,
+        "system_ram_peak_gib": 26.683696746826172
+      },
+      "results": [
+        {
+          "conversation_id": "perf-0",
+          "status": "failed",
+          "cached": false,
+          "job_id": "1fa96d2ef65647078eacd24a4b137b20",
+          "evaluation_id": null,
+          "metrics": [
+            {
+              "calls": [
+                {
+                  "provider": "OllamaProvider",
+                  "model": "qwen3:4b",
+                  "http_attempts": 1,
+                  "retries": 0,
+                  "usage": {
+                    "input_tokens": 2190,
+                    "output_tokens": 1024
+                  },
+                  "provider_wait_seconds": 0.385114,
+                  "last_http_status": 200,
+                  "load_duration_seconds": 5.9030967,
+                  "prompt_eval_duration_seconds": 0.796569,
+                  "eval_duration_seconds": 16.063099,
+                  "total_duration_seconds": 22.7905803,
+                  "status": "failed",
+                  "error_code": "invalid_output",
+                  "duration_seconds": 23.182168
+                }
+              ],
+              "status": "failed",
+              "queue_seconds": 0.076803,
+              "error_code": "invalid_output",
+              "duration_seconds": 23.194288
+            }
+          ],
+          "error": "LLM returned invalid or truncated output; no evaluation saved",
+          "wait_seconds": 23.375
+        }
+      ],
+      "resource_scope": "whole-system RAM and summed NVIDIA VRAM; not process-exclusive",
+      "sample_count": 13
+    }
+  ]
+}

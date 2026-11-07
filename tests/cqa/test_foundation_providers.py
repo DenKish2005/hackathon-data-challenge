@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 import httpx
@@ -103,3 +104,114 @@ def test_external_provider_requires_explicit_configuration_and_permission():
         build_provider(Settings(llm_provider="openai_compatible", external_data_allowed=False))
     with pytest.raises(ValueError, match="LLM_MODEL"):
         build_provider(Settings(llm_provider="ollama"))
+
+
+@pytest.mark.parametrize("kind", ["ollama", "openai_compatible"])
+async def test_switching_wire_limits_and_per_call_usage(kind):
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["model"] == "contract-model"
+        assert body["messages"] == [{"role": "user", "content": "Return JSON"}]
+        if kind == "ollama":
+            assert request.url.path == "/api/chat"
+            assert body["stream"] is False
+            assert body["format"] == {"type": "object"}
+            assert body["options"] == {"temperature": 0, "num_ctx": 8192, "num_predict": 256}
+            data = {
+                "done": True,
+                "done_reason": "stop",
+                "message": {"content": '{"ok": true}'},
+                "prompt_eval_count": 25,
+                "eval_count": 10,
+            }
+        else:
+            assert body["max_tokens"] == 256
+            assert body["response_format"] == {"type": "json_object"}
+            data = {
+                "choices": [{"finish_reason": "stop", "message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 35},
+            }
+        return httpx.Response(200, json=data)
+
+    provider = build_provider(
+        Settings(
+            llm_provider=kind,
+            llm_base_url="http://127.0.0.1:11434",
+            llm_model="contract-model",
+            llm_api_key="synthetic",
+            external_data_allowed=True,
+            llm_context_size=8192,
+            llm_output_limit=256,
+            llm_timeout=7,
+            llm_concurrency=1,
+            llm_attempts=2,
+        )
+    )
+    provider.transport = httpx.MockTransport(handler)
+    result = await provider.generate(
+        [{"role": "user", "content": "Return JSON"}], {"type": "object"}
+    )
+    assert result == {"ok": True}
+    assert result.metadata["usage"]["input_tokens"] == 25
+    assert result.metadata["usage"]["output_tokens"] == 10
+    assert result.metadata["duration_seconds"] >= 0
+    assert provider.timeout == 7
+    assert provider.configuration()["output_limit"] == 256
+
+
+@pytest.mark.parametrize("provider_class", [OllamaProvider, OpenAICompatibleProvider])
+@pytest.mark.parametrize("failure", ["json", "array", "truncated", "empty", "shape", "nan"])
+async def test_bad_generation_never_becomes_success(provider_class, failure):
+    content = {
+        "json": "{",
+        "array": "[]",
+        "truncated": "{}",
+        "empty": "",
+        "shape": None,
+        "nan": '{"value": NaN}',
+    }[failure]
+    if provider_class is OllamaProvider:
+        data = {
+            "done": True,
+            "done_reason": "length" if failure == "truncated" else "stop",
+            "message": {"content": content},
+        }
+    else:
+        data = {
+            "choices": [
+                {
+                    "finish_reason": "length" if failure == "truncated" else "stop",
+                    "message": {"content": content},
+                }
+            ]
+        }
+    provider = provider_class(
+        "http://localhost:11434",
+        "test",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=data)),
+    )
+    with pytest.raises(ProviderError, match="invalid or incomplete"):
+        await provider.generate([], {})
+
+
+@pytest.mark.parametrize("provider_class", [OllamaProvider, OpenAICompatibleProvider])
+async def test_context_rejected_before_http(provider_class):
+    def unexpected(request):
+        raise AssertionError("Oversized context reached provider")
+
+    provider = provider_class(
+        "http://localhost:11434",
+        "test",
+        context_size=4096,
+        output_limit=1024,
+        transport=httpx.MockTransport(unexpected),
+    )
+    with pytest.raises(ProviderError, match="context"):
+        await provider.generate([{"content": "Ж" * 3000}], {})
+
+
+def test_remote_ollama_needs_data_permission():
+    with pytest.raises(ValueError, match="permission"):
+        build_provider(
+            Settings(llm_provider="ollama", llm_base_url="https://remote.test", llm_model="test")
+        )

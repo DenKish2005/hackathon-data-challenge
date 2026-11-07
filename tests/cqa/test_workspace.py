@@ -4,6 +4,8 @@ import sys
 
 import pytest
 
+from cqa.backend.compat import workspace_view
+from cqa.backend.database import Database
 from cqa.service import Store
 from cqa.workspace import default_checklist, normalize_records, read_workspace, write_workspace
 
@@ -50,16 +52,17 @@ def test_cli_import_and_export_are_durable(tmp_path, monkeypatch):
     path = tmp_path / "dataset.json"
     path.write_text(json.dumps([record()]))
     db = tmp_path / "db.sqlite3"
-    monkeypatch.setenv("CQA_DB", str(db))
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
     subprocess.run([sys.executable, "-m", "cqa", "import", str(path)], check=True)
-    store = Store(str(db))
-    assert len(read_workspace(store)["data"]["dialogs"]) == 1
+    database = Database(f"sqlite:///{db}")
+    assert len(workspace_view(database)["data"]["dialogs"]) == 1
     output = tmp_path / "report.json"
     subprocess.run([sys.executable, "-m", "cqa", "export", str(output)], check=True)
     assert json.loads(output.read_text(encoding="utf-8"))["conversations"][0]["score"] is None
-    failed = subprocess.run([sys.executable, "-m", "cqa", "import", str(path)], check=False)
-    assert failed.returncode == 1
-    assert read_workspace(store)["revision"] == 1
+    repeated = subprocess.run([sys.executable, "-m", "cqa", "import", str(path)], check=False)
+    assert repeated.returncode == 0
+    assert len(workspace_view(database)["data"]["dialogs"]) == 1
+    database.engine.dispose()
 
 
 def test_cli_refuses_to_overwrite_browser_changes(tmp_path):

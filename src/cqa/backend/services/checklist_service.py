@@ -1,5 +1,7 @@
 """Append-only checklist versions with optimistic concurrency control."""
 
+from contextlib import nullcontext
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -7,9 +9,24 @@ from cqa.backend.models import Checklist
 from cqa.backend.services.dataset_importer import Conflict
 
 
-def create_checklist(db, request):
+def seed_checklist(db):
+    from cqa.backend.schemas import ChecklistCreate
+    from cqa.workspace import default_checklist
+
+    with db.sessions() as session:
+        seeded = session.get(Checklist, ("official", 1)) is not None
+    if not seeded:
+        try:
+            create_checklist(
+                db, ChecklistCreate(checklist_id="official", criteria=default_checklist())
+            )
+        except Conflict:
+            pass
+
+
+def create_checklist(db, request, *, session=None):
     try:
-        with db.sessions.begin() as session:
+        with nullcontext(session) if session is not None else db.sessions.begin() as session:
             latest = session.scalar(
                 select(func.max(Checklist.version)).where(
                     Checklist.checklist_id == request.checklist_id
@@ -24,6 +41,7 @@ def create_checklist(db, request):
                 sections=request.sections,
             )
             session.add(checklist)
+            session.flush()
         return checklist
     except IntegrityError as exc:
         raise Conflict("Checklist version was created concurrently; reload and retry") from exc

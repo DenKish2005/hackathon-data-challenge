@@ -7,12 +7,17 @@ from sqlalchemy import func, select
 from cqa.agents.classifier import BasicClassifier
 from cqa.agents.extractor import BasicExtractor
 from cqa.backend.config import Settings
-from cqa.backend.models import Evaluation, EvaluationJob
+from cqa.backend.models import Evaluation, EvaluationJob, Message
 from cqa.backend.schemas import ChecklistCreate, DatasetEnvelope, EvaluationCreate
 from cqa.backend.services.checklist_service import create_checklist
 from cqa.backend.services.dataset_importer import import_dataset
 from cqa.backend.services.evaluation_jobs import create_job, inputs
-from cqa.infra.orchestrator.pipeline import MockEvaluator, Pipeline, validate_result
+from cqa.infra.orchestrator.pipeline import (
+    MockEvaluator,
+    Pipeline,
+    ProviderEvaluator,
+    validate_result,
+)
 from cqa.infra.orchestrator.queue import Worker, worker_lock
 from cqa.workspace import default_checklist
 
@@ -134,6 +139,31 @@ def test_cache_covers_model_prompt_checklist_and_source(database):
     worker.settings.prompt_version = "foundation-v1"
     worker.pipeline.evaluator.model = "another-model"
     assert create_job(database, worker.pipeline, worker.settings, request).job_id != job.job_id
+    worker.pipeline.evaluator.model = "synthetic-mock-v1"
+    with database.sessions.begin() as session:
+        message = session.scalar(select(Message).where(Message.conversation_id == "synthetic-0"))
+        message.text = "Changed source text invalidates cache"
+    assert create_job(database, worker.pipeline, worker.settings, request).job_id != job.job_id
+    create_checklist(
+        database,
+        ChecklistCreate(checklist_id="official", base_version=1, criteria=default_checklist()),
+    )
+    newer = request.model_copy(update={"checklist_version": 2})
+    assert create_job(database, worker.pipeline, worker.settings, newer).job_id != job.job_id
+
+
+async def test_restart_rejects_pending_job_when_model_configuration_changed(database):
+    job, worker, request = setup_job(database)
+    worker.pipeline.evaluator.model = "new-model-after-restart"
+    assert await worker.process_one()
+    with database.sessions() as session:
+        assert session.get(EvaluationJob, job.job_id).status == "failed"
+        assert session.scalar(select(func.count()).select_from(Evaluation)) == 0
+    replacement = create_job(database, worker.pipeline, worker.settings, request)
+    assert replacement.job_id != job.job_id
+    assert await worker.process_one()
+    with database.sessions() as session:
+        assert session.get(EvaluationJob, replacement.job_id).status == "completed"
 
 
 async def test_shutdown_cancellation_and_restart_limit(database):
@@ -144,3 +174,46 @@ async def test_shutdown_cancellation_and_restart_limit(database):
     worker.recover()
     with database.sessions() as session:
         assert session.get(EvaluationJob, job.job_id).status == "failed"
+
+
+async def test_provider_adapter_reuses_ai_contract_and_verifies_quotes(database):
+    import json
+
+    job, worker, request = setup_job(database)
+    with database.sessions() as session:
+        conversation, checklist = inputs(session, request.conversation_id, "official", 1)
+
+    class FakeProvider:
+        model = "contract-model"
+        is_mock = True
+
+        def configuration(self):
+            return {"provider": "test", "model": self.model}
+
+        async def generate(self, messages, schema):
+            content = json.loads(messages[-1]["content"])["evaluation"]
+            assert content["channel"] == "agent chat"
+            assert content["checklist_id"] == "official"
+            assert content["messages"][1]["role"] == "bot"
+            first = content["messages"][0]
+            assert first["id"] == conversation.messages[0].message_id
+            return {
+                "summary": "Synthetic contract test",
+                "results": [
+                    {
+                        "criterionId": c.id,
+                        "answer": min(c.scale) if c.type == "scale" else "Нет",
+                        "reason": "Synthetic contract answer, no real assessment",
+                        "evidenceId": first["id"],
+                        "quote": first["text"],
+                        "checkedMessageIds": [m["id"] for m in content["messages"]],
+                        "confidence": 0.0,
+                    }
+                    for c in checklist.criteria
+                ],
+            }
+
+    pipeline = Pipeline(ProviderEvaluator(FakeProvider()))
+    result = await pipeline.run(conversation, checklist)
+    assert result["is_mock"] is True
+    assert result["metadata"]["quotes"]["1"] == conversation.messages[0].text

@@ -19,6 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cqa.normalization import NORMALIZATION_VERSION, normalize_messages
 from cqa.prompts import (
+    CRITIC_RULES as CRITIC_RULES,
+)
+from cqa.prompts import (
     GUIDANCE,
     PIPELINE_VERSION,
     PROMPT_VERSION,
@@ -395,6 +398,109 @@ class Store:
         ]
 
 
+async def analyze_phase(request, messages, calls, phase, generate, analysis=None):
+    """Shared bounded generation/grounding repair for legacy and Foundation adapters."""
+    pending = None
+    repair_feedback = ""
+    for attempt in range(3):
+        focused = (
+            request
+            if not pending
+            else request.model_copy(
+                update={"criteria": [c for c in request.criteria if c.id in pending]}
+            )
+        )
+        call_started = time.perf_counter()
+        call_messages = messages
+        if pending:
+            # A genuinely focused request must not carry the full old rubric
+            # and invalid assistant answer, which can anchor the model to it.
+            call_messages = build_messages(focused)
+            call_messages.append({"role": "user", "content": repair_feedback})
+            if phase == "critic":
+                call_messages.append(
+                    {"role": "user", "content": critic_instruction(focused.criteria)}
+                )
+        response = await generate(call_messages, schema=analysis_schema(focused))
+        calls.append(
+            {
+                "phase": phase,
+                "repair": attempt > 0,
+                "targeted": bool(pending),
+                "criterionIds": [c.id for c in focused.criteria],
+                "durationSeconds": round(time.perf_counter() - call_started, 3),
+                **{
+                    k: response.get(k)
+                    for k in (
+                        "model",
+                        "prompt_eval_count",
+                        "eval_count",
+                        "total_duration",
+                        "httpAttempts",
+                    )
+                },
+            }
+        )
+        raw = response["message"]["content"]
+        try:
+            candidate = parse_analysis(raw, focused)
+            if pending:
+                validate_analysis(focused, candidate)
+                replacements = {r.criterionId: r for r in candidate.results}
+                candidate = Analysis(
+                    summary=analysis.summary,
+                    requests=(
+                        candidate.requests
+                        if "requests" in candidate.model_fields_set
+                        and any(profile(c) == "consultation" for c in focused.criteria)
+                        else analysis.requests
+                    ),
+                    results=[replacements.get(r.criterionId, r) for r in analysis.results],
+                )
+            analysis = candidate
+            validate_analysis(request, analysis)
+            calls[-1]["validated"] = True
+        except (ValueError, KeyError) as exc:
+            calls[-1]["validated"] = False
+            calls[-1]["validationIssue"] = (
+                "grounding" if isinstance(exc, GroundingError) else "structure"
+            )
+            if attempt == 2:
+                raise ValueError("Модель не вернула проверяемую оценку после исправлений") from exc
+            # Only a parsed result with criterion-specific grounding issues
+            # permits a focused repair. Otherwise repair the complete JSON.
+            if isinstance(exc, GroundingError) and analysis is not None:
+                pending = set(exc.issues)
+                feedback = (
+                    "Repair ONLY these criterion IDs: "
+                    + json.dumps(sorted(pending))
+                    + ". "
+                    + str(exc)
+                    + ". Return results for exactly these IDs and a summary. "
+                    "Preserve other valid findings; the application merges them."
+                )
+            else:
+                # Invalid focused JSON does not discard the already valid draft.
+                feedback = (
+                    "Repair the JSON for "
+                    + (json.dumps(sorted(pending)) if pending else "ALL active criteria")
+                    + ". Return only the requested findings and a summary. "
+                    "Use the schema and exact transcript evidence."
+                )
+            if pending:
+                repair_feedback = feedback
+            else:
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": raw},
+                        {"role": "user", "content": feedback},
+                    ]
+                )
+            continue
+        break
+    return analysis
+
+
 class Evaluator:
     def __init__(self, store=None, transport=None):
         self.store = store or Store()
@@ -542,112 +648,9 @@ class Evaluator:
             analysis = None
             draft = None
             for phase in ("evaluate", "critic"):
-                pending = None
-                repair_feedback = ""
-                for attempt in range(3):
-                    focused = (
-                        request
-                        if not pending
-                        else request.model_copy(
-                            update={"criteria": [c for c in request.criteria if c.id in pending]}
-                        )
-                    )
-                    call_started = time.perf_counter()
-                    call_messages = messages
-                    if pending:
-                        # A genuinely focused request must not carry the full old rubric
-                        # and invalid assistant answer, which can anchor the model to it.
-                        call_messages = build_messages(focused)
-                        call_messages.append({"role": "user", "content": repair_feedback})
-                        if phase == "critic":
-                            call_messages.append(
-                                {"role": "user", "content": critic_instruction(focused.criteria)}
-                            )
-                    response = await self.generate(call_messages, schema=analysis_schema(focused))
-                    calls.append(
-                        {
-                            "phase": phase,
-                            "repair": attempt > 0,
-                            "targeted": bool(pending),
-                            "criterionIds": [c.id for c in focused.criteria],
-                            "durationSeconds": round(time.perf_counter() - call_started, 3),
-                            **{
-                                k: response.get(k)
-                                for k in (
-                                    "model",
-                                    "prompt_eval_count",
-                                    "eval_count",
-                                    "total_duration",
-                                    "httpAttempts",
-                                )
-                            },
-                        }
-                    )
-                    raw = response["message"]["content"]
-                    try:
-                        candidate = parse_analysis(raw, focused)
-                        if pending:
-                            validate_analysis(focused, candidate)
-                            replacements = {r.criterionId: r for r in candidate.results}
-                            candidate = Analysis(
-                                summary=analysis.summary,
-                                requests=(
-                                    candidate.requests
-                                    if "requests" in candidate.model_fields_set
-                                    and any(profile(c) == "consultation" for c in focused.criteria)
-                                    else analysis.requests
-                                ),
-                                results=[
-                                    replacements.get(r.criterionId, r) for r in analysis.results
-                                ],
-                            )
-                        analysis = candidate
-                        validate_analysis(request, analysis)
-                        calls[-1]["validated"] = True
-                    except (ValueError, KeyError) as exc:
-                        calls[-1]["validated"] = False
-                        calls[-1]["validationIssue"] = (
-                            "grounding" if isinstance(exc, GroundingError) else "structure"
-                        )
-                        if attempt == 2:
-                            raise ValueError(
-                                "Модель не вернула проверяемую оценку после исправлений"
-                            ) from exc
-                        # Only a parsed result with criterion-specific grounding issues
-                        # permits a focused repair. Otherwise repair the complete JSON.
-                        if isinstance(exc, GroundingError) and analysis is not None:
-                            pending = set(exc.issues)
-                            feedback = (
-                                "Repair ONLY these criterion IDs: "
-                                + json.dumps(sorted(pending))
-                                + ". "
-                                + str(exc)
-                                + ". Return results for exactly these IDs and a summary. "
-                                "Preserve other valid findings; the application merges them."
-                            )
-                        else:
-                            # Invalid focused JSON does not discard the already valid draft.
-                            feedback = (
-                                "Repair the JSON for "
-                                + (
-                                    json.dumps(sorted(pending))
-                                    if pending
-                                    else "ALL active criteria"
-                                )
-                                + ". Return only the requested findings and a summary. "
-                                "Use the schema and exact transcript evidence."
-                            )
-                        if pending:
-                            repair_feedback = feedback
-                        else:
-                            messages.extend(
-                                [
-                                    {"role": "assistant", "content": raw},
-                                    {"role": "user", "content": feedback},
-                                ]
-                            )
-                        continue
-                    break
+                analysis = await analyze_phase(
+                    request, messages, calls, phase, self.generate, analysis
+                )
                 if phase == "evaluate":
                     draft = analysis.model_copy(deep=True)
                     model_draft = analysis.model_dump(exclude_defaults=True)

@@ -3,12 +3,15 @@
 import asyncio
 import logging
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 from sqlalchemy import select, update
 
-from cqa.backend.models import Evaluation, EvaluationJob, now
-from cqa.backend.services.evaluation_jobs import inputs
+from cqa.backend.models import Evaluation, EvaluationJob, JobMetrics, now
+from cqa.backend.services.evaluation_jobs import inputs, job_key
+from cqa.infra.llm.base import ProviderError, call_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -91,14 +94,30 @@ class Worker:
         job_id = self.claim()
         if not job_id:
             return False
+        started = perf_counter()
+        metrics = {"calls": [], "status": "running"}
+        token = call_metrics.set(metrics["calls"])
         try:
             with self.db.sessions() as session:
                 job = session.get(EvaluationJob, job_id)
+                metrics["queue_seconds"] = max(
+                    0,
+                    (
+                        datetime.fromisoformat(now()) - datetime.fromisoformat(job.created_at)
+                    ).total_seconds(),
+                )
                 conversation, checklist = inputs(
                     session, job.conversation_id, job.checklist_id, job.checklist_version
                 )
+                if job.cache_key.split(":")[0] != job_key(
+                    conversation, checklist, self.pipeline, self.settings
+                ):
+                    raise ValueError(
+                        "Pipeline configuration changed; resubmit with current configuration"
+                    )
             async with asyncio.timeout(self.settings.timeout):
                 result = await self.pipeline.run(conversation, checklist)
+            result["metadata"]["prompt_version"] = self.settings.prompt_version
             with self.db.sessions.begin() as session:
                 job = session.get(EvaluationJob, job_id)
                 session.add(
@@ -115,16 +134,42 @@ class Worker:
                     )
                 )
                 job.status, job.error_message, job.updated_at = "completed", None, now()
+                metrics["status"] = "completed"
         except asyncio.CancelledError:
             # Leave RUNNING durable for controlled recovery; no result committed yet.
+            metrics.update(status="interrupted", error_code="interrupted")
             raise
         except Exception as exc:
             # Never persist exception text: providers can embed credentials or transcripts.
             error = "Evaluation timed out" if isinstance(exc, TimeoutError) else "Evaluation failed"
+            code = (
+                exc.code
+                if isinstance(exc, ProviderError)
+                else "job_timeout"
+                if isinstance(exc, TimeoutError)
+                else "validation_error"
+                if isinstance(exc, ValueError)
+                else "internal_error"
+            )
+            metrics.update(status="failed", error_code=code)
+            error = {
+                "transport_error": "LLM unavailable or timed out; check the model service",
+                "http_error": "LLM request rejected; check service configuration and resources",
+                "invalid_json": "LLM service returned invalid JSON; no evaluation saved",
+                "invalid_output": "LLM returned invalid or truncated output; no evaluation saved",
+                "context_limit": "Full input exceeds safe context; increase LLM_CONTEXT_SIZE",
+                "validation_error": "Result failed schema or evidence validation; "
+                "no evaluation saved",
+            }.get(code, error)
             with self.db.sessions.begin() as session:
                 job = session.get(EvaluationJob, job_id)
                 job.status, job.error_message, job.updated_at = "failed", error, now()
             logger.warning("evaluation job=%s failed type=%s", job_id, type(exc).__name__)
+        finally:
+            call_metrics.reset(token)
+            metrics["duration_seconds"] = round(perf_counter() - started, 6)
+            with self.db.sessions.begin() as session:
+                session.add(JobMetrics(job_id=job_id, metrics=metrics))
         return True
 
     async def run(self):

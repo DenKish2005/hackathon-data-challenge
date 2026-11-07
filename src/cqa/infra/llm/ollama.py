@@ -1,16 +1,15 @@
-import json
+from time import perf_counter
 
-from cqa.infra.llm.base import HTTPProvider, ProviderError
+from cqa.infra.llm.base import HTTPProvider, ProviderError, active_call
 
 
 class OllamaProvider(HTTPProvider):
     def configuration(self):
-        return {**super().configuration(), "num_ctx": 65536}
+        return {**super().configuration(), "num_ctx": self.context_size}
 
-    async def generate(self, messages, schema):
-        # Reject large inputs rather than letting Ollama silently truncate the transcript.
-        if len(json.dumps(messages).encode()) + len(json.dumps(schema).encode()) + 9000 > 65536:
-            raise ProviderError("Input exceeds configured safe model context")
+    async def _generate(self, messages, schema):
+        self.check_context(messages, schema)
+        started = perf_counter()
         data = await self.post(
             "/api/chat",
             {
@@ -19,12 +18,48 @@ class OllamaProvider(HTTPProvider):
                 "format": schema,
                 "stream": False,
                 "think": False,
-                "options": {"temperature": 0, "num_ctx": 65536, "num_predict": 8000},
+                "options": {
+                    "temperature": 0,
+                    "num_ctx": self.context_size,
+                    "num_predict": self.output_limit,
+                },
             },
         )
+        if isinstance(data, dict) and active_call.get() is not None:
+            metrics = active_call.get()
+            metrics["usage"] = {
+                key: data[source]
+                for key, source in (
+                    ("input_tokens", "prompt_eval_count"),
+                    ("output_tokens", "eval_count"),
+                )
+                if type(data.get(source)) is int and data[source] >= 0
+            }
+            for field in (
+                "load_duration",
+                "prompt_eval_duration",
+                "eval_duration",
+                "total_duration",
+            ):
+                value = data.get(field)
+                if type(value) is int and value >= 0:
+                    metrics[field + "_seconds"] = value / 1_000_000_000
         try:
-            if data.get("done") is not True or data.get("done_reason") == "length":
+            if (
+                not isinstance(data, dict)
+                or data.get("done") is not True
+                or data.get("done_reason") != "stop"
+            ):
                 raise ValueError("Incomplete output")
-            return json.loads(data["message"]["content"])
+            return self.decoded(
+                data["message"]["content"],
+                {
+                    "input_tokens": data.get("prompt_eval_count"),
+                    "output_tokens": data.get("eval_count"),
+                },
+                started,
+            )
         except (KeyError, TypeError, ValueError) as exc:
-            raise ProviderError("Provider returned invalid or incomplete output") from exc
+            raise ProviderError(
+                "Provider returned invalid or incomplete output", "invalid_output"
+            ) from exc
