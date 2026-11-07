@@ -191,7 +191,7 @@ async def test_provider_adapter_reuses_ai_contract_and_verifies_quotes(database)
             return {"provider": "test", "model": self.model}
 
         async def generate(self, messages, schema):
-            content = json.loads(messages[-1]["content"])
+            content = json.loads(messages[-1]["content"])["evaluation"]
             assert content["channel"] == "agent chat"
             assert content["checklist_id"] == "official"
             assert content["messages"][1]["role"] == "bot"

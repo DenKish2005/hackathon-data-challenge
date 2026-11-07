@@ -9,7 +9,22 @@ from typing import Protocol
 from pydantic import Field, StrictFloat, StrictStr
 
 from cqa.backend.schemas import ChecklistView, ConversationDetail, Schema
-from cqa.service import CRITIC_RULES, RULES, Analysis, EvaluationRequest, score, validate_analysis
+from cqa.infra.llm.openai_compatible import OpenAICompatibleProvider
+from cqa.normalization import NORMALIZATION_VERSION
+from cqa.prompts import (
+    CRITIC_RULES,
+    GUIDANCE,
+    PIPELINE_VERSION,
+    PROMPT_VERSION,
+    REFERENCE,
+    RULES,
+    SCHEMA_VERSION,
+    build_messages,
+    critic_instruction,
+    fingerprint,
+    wire_answer,
+)
+from cqa.service import Analysis, EvaluationRequest, analyze_phase, score
 
 
 class Finding(Schema):
@@ -135,11 +150,17 @@ class ProviderEvaluator:
 
     def configuration(self):
         return {
+            **self.provider.configuration(),
             "evaluator": self.name,
-            "adapter_version": 2,
+            "adapter_version": 3,
             "rules": RULES,
             "schema": Analysis.model_json_schema(),
-            **self.provider.configuration(),
+            "prompt_version": PROMPT_VERSION,
+            "schema_version": SCHEMA_VERSION,
+            "pipeline_version": PIPELINE_VERSION,
+            "reference_guidance": GUIDANCE,
+            "reference_definitions": REFERENCE,
+            "normalization_version": NORMALIZATION_VERSION,
         }
 
     def request_messages(self, conversation, checklist):
@@ -159,46 +180,68 @@ class ProviderEvaluator:
                 for m in conversation.messages
             ],
         )
-        schema = Analysis.model_json_schema()
-        messages = [
-            {
-                "role": "system",
-                "content": RULES
-                + "\nReturn JSON using this schema:\n"
-                + json.dumps(schema, ensure_ascii=False),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        **request.model_dump(mode="json", exclude={"force"}),
-                        "channel": conversation.channel,
-                        "checklist_id": checklist.checklist_id,
-                        "sections": checklist.sections,
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
+        messages = build_messages(request)
+        payload = json.loads(messages[1]["content"])
+        payload["evaluation"].update(
+            channel=conversation.channel,
+            checklist_id=checklist.checklist_id,
+            sections=checklist.sections,
+        )
+        messages[1]["content"] = json.dumps(payload, ensure_ascii=False)
         return request, messages
 
     async def analyze(self, conversation, checklist, previous=None):
         request, messages = self.request_messages(conversation, checklist)
+        previous_analysis = None
         if previous is not None:
+            previous_analysis = Analysis.model_validate(previous.metadata["analysis"])
+            model_draft = previous_analysis.model_dump(exclude_defaults=True)
+            for finding in model_draft["results"]:
+                finding["answer"] = wire_answer(finding["answer"])
             messages.extend(
                 [
                     {
                         "role": "assistant",
-                        "content": json.dumps(previous.metadata["analysis"], ensure_ascii=False),
+                        "content": json.dumps(model_draft, ensure_ascii=False),
                     },
-                    {"role": "user", "content": CRITIC_RULES},
+                    {"role": "user", "content": critic_instruction(request.criteria)},
                 ]
             )
-        generated = await self.provider.generate(messages, Analysis.model_json_schema())
-        analysis = validate_analysis(request, Analysis.model_validate(generated))
+        provider_calls = []
+
+        async def generate(messages, *, schema):
+            if isinstance(self.provider, OpenAICompatibleProvider):
+                # JSON-object mode needs the active schema in every full/focused prompt.
+                messages = [dict(m) for m in messages]
+                messages[0]["content"] += "\nReturn JSON using this schema:\n" + json.dumps(
+                    schema, ensure_ascii=False
+                )
+            generated = await self.provider.generate(messages, schema)
+            metadata = getattr(generated, "metadata", {})
+            provider_calls.append(metadata)
+            usage = metadata.get("usage", {})
+            return {
+                "message": {"content": json.dumps(generated, ensure_ascii=False)},
+                "model": metadata.get("model", self.model),
+                "prompt_eval_count": usage.get("input_tokens"),
+                "eval_count": usage.get("output_tokens"),
+            }
+
+        phase_calls = []
+        analysis = await analyze_phase(
+            request,
+            messages,
+            phase_calls,
+            "critic" if previous else "evaluate",
+            generate,
+            previous_analysis,
+        )
         calls = [
             *(previous.metadata.get("calls", []) if previous else []),
-            getattr(generated, "metadata", {}),
+            *[
+                {**metadata, **phase}
+                for metadata, phase in zip(provider_calls, phase_calls, strict=True)
+            ],
         ]
         return EvaluationResult(
             is_mock=self.is_mock,
@@ -207,7 +250,14 @@ class ProviderEvaluator:
                     criterion_id=f.criterionId,
                     answer=f.answer,
                     explanation=f.reason,
-                    message_ids=[f.evidenceId],
+                    message_ids=list(
+                        dict.fromkeys(
+                            [
+                                *([f.evidenceId] if f.evidenceId else []),
+                                *(e.messageId for e in f.evidence),
+                            ]
+                        )
+                    ),
                     checked_message_ids=f.checkedMessageIds,
                     na_reason=f.reason if f.answer == "N/A" else None,
                 )
@@ -218,6 +268,35 @@ class ProviderEvaluator:
                 "quotes": {f.criterionId: f.quote for f in analysis.results},
                 "analysis": analysis.model_dump(mode="json"),
                 "calls": calls,
+                "promptVersion": PROMPT_VERSION,
+                "schemaVersion": SCHEMA_VERSION,
+                "pipelineVersion": PIPELINE_VERSION,
+                "checklistFingerprint": fingerprint([c.model_dump() for c in request.criteria]),
+                "reviewRecommended": any(f.reviewRecommended for f in analysis.results),
+                "scoreProvisional": any(f.reviewRecommended for f in analysis.results),
+                "evidenceValidation": {
+                    "idsAndQuotesValidated": True,
+                    "rolesValidated": True,
+                    "semanticRelevanceGuaranteed": False,
+                },
+                "draftResults": (
+                    previous.metadata["analysis"]["results"]
+                    if previous
+                    else analysis.model_dump(mode="json")["results"]
+                ),
+                "criticChanges": [
+                    {
+                        "criterionId": before.criterionId,
+                        "draftAnswer": before.answer,
+                        "finalAnswer": after.answer,
+                        "answerChanged": before.answer != after.answer,
+                        "evidenceChanged": (before.evidenceId, before.quote, before.evidence)
+                        != (after.evidenceId, after.quote, after.evidence),
+                    }
+                    for before in (previous_analysis.results if previous_analysis else [])
+                    for after in analysis.results
+                    if before.criterionId == after.criterionId
+                ],
             },
         )
 

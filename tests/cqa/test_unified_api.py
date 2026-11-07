@@ -22,7 +22,7 @@ def synthetic_app(tmp_path, *, failure=None):
     def handler(request):
         body = json.loads(request.content)
         calls.append(body)
-        content = json.loads(body["messages"][1]["content"])
+        content = json.loads(body["messages"][1]["content"])["evaluation"]
         first = content["messages"][0]
         result = {
             "summary": "Synthetic HTTP contract, no semantic assessment",
@@ -114,7 +114,7 @@ def test_legacy_and_canonical_endpoints_share_jobs_scores_reviews_and_restart(tm
         assert original["tokens"] == 300
         assert original["passes"] == 2
         assert original["results"][0]["evidenceId"] == "m1"
-        assert original["results"][0]["confidence"] == 0.5
+        assert original["results"][0]["confidence"] is None
         assert original["metadata"]["prompt_version"] == "foundation-v1"
         assert len(calls) == 2
         job = client.post(

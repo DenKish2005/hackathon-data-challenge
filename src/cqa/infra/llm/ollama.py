@@ -7,6 +7,12 @@ class OllamaProvider(HTTPProvider):
     def configuration(self):
         return {**super().configuration(), "num_ctx": self.context_size}
 
+    def check_context(self, messages, schema):
+        # Ollama receives `format` as a sampler grammar, separately from the chat.
+        # Count the complete messages and output reserve, without charging grammar
+        # bytes as prompt tokens. The JSON-object provider includes its schema in text.
+        super().check_context(messages, {})
+
     async def _generate(self, messages, schema):
         self.check_context(messages, schema)
         started = perf_counter()
@@ -44,6 +50,12 @@ class OllamaProvider(HTTPProvider):
                 value = data.get(field)
                 if type(value) is int and value >= 0:
                     metrics[field + "_seconds"] = value / 1_000_000_000
+        reported_tokens = data.get("prompt_eval_count") if isinstance(data, dict) else None
+        if (
+            type(reported_tokens) is int
+            and reported_tokens + self.output_limit >= self.context_size
+        ):
+            raise ProviderError("Input exceeds configured safe model context", "context_limit")
         try:
             if (
                 not isinstance(data, dict)

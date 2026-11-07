@@ -28,6 +28,7 @@ from cqa.backend.services.checklist_service import create_checklist
 from cqa.backend.services.dataset_importer import Conflict, fetch_organizer, import_dataset
 from cqa.backend.services.evaluation_jobs import create_job, inputs
 from cqa.infra.orchestrator.pipeline import Finding
+from cqa.normalization import NORMALIZATION_VERSION, normalize_messages
 from cqa.service import EvaluationRequest
 from cqa.service import Message as LegacyMessage
 from cqa.workspace import default_checklist
@@ -69,17 +70,29 @@ def evaluation_view(session, row, messages=None, *, reviewed=False, cached=False
     findings = []
     for f in result["findings"]:
         extra = original.get(f["criterion_id"], {})
-        refs = f["message_ids"] or f["checked_message_ids"]
+        if extra.get("answer") != f["answer"] or extra.get("reason") != f["explanation"]:
+            extra = {}  # A human replacement must not inherit stale model evidence/review notes.
+        refs = f["message_ids"] or (
+            [] if extra.get("evidenceBasis") == "absence" else f["checked_message_ids"]
+        )
+        primary = extra.get("evidenceId")
+        primary = primary if primary in f["message_ids"] else (refs[0] if refs else "")
         findings.append(
             {
+                **extra,
                 "criterionId": f["criterion_id"],
                 "answer": f["answer"],
                 "reason": f["explanation"],
-                "evidenceId": ids[refs[0]] if refs else "",
+                "evidenceId": ids[primary] if primary else "",
                 "quote": extra.get("quote", "")
                 if extra.get("evidenceId") in f["message_ids"]
                 else "",
                 "checkedMessageIds": [ids[mid] for mid in f["checked_message_ids"]],
+                "evidence": [
+                    {**e, "messageId": ids[e["messageId"]]}
+                    for e in extra.get("evidence", [])
+                    if e["messageId"] in f["message_ids"]
+                ],
                 "confidence": extra.get("confidence")
                 if extra.get("answer") == f["answer"]
                 else None,
@@ -107,6 +120,17 @@ def evaluation_view(session, row, messages=None, *, reviewed=False, cached=False
         "criteriaSnapshot": [c.model_dump(mode="json") for c in checklist.criteria],
         "summary": result["metadata"].get("summary", result["metadata"].get("notice", "")),
         "results": findings,
+        "messages": messages,
+        "requests": [
+            {
+                **r,
+                "messageId": ids[r["messageId"]],
+                "operatorMessageIds": [ids[mid] for mid in r["operatorMessageIds"]],
+            }
+            for r in result["metadata"].get("analysis", {}).get("requests", [])
+        ],
+        "reviewRecommended": any(f.get("reviewRecommended", False) for f in findings),
+        "scoreProvisional": any(f.get("reviewRecommended", False) for f in findings),
         "score": result["score"],
         "critical": result["critical"],
         "tokens": sum(u.get("input_tokens", 0) + u.get("output_tokens", 0) for u in usage)
@@ -177,7 +201,8 @@ def import_dialog(db, session, dialog):
     existing = session.get(Conversation, cid)
     if existing:
         conversation, _ = inputs(session, cid, "official", 1)
-        supplied = [(m["role"], m["time"], m["text"]) for m in dialog["messages"]]
+        normalized, _ = normalize_messages(messages)
+        supplied = [(m.role, m.time, m.text) for m in normalized]
         expected = [(m.speaker, m.timestamp_original, m.text) for m in conversation.messages]
         if (
             supplied != expected
@@ -545,6 +570,12 @@ def install_compat(app, db, pipeline, settings, transport=None):
                                 session, row, dialog["messages"], reviewed=True, cached=cached
                             )
                             result["checklistVersion"] = request.version
+                            _, changes = normalize_messages(request.messages)
+                            if changes:
+                                result["normalization"] = {
+                                    "version": NORMALIZATION_VERSION,
+                                    "changes": changes,
+                                }
                             return result
                     await asyncio.sleep(0.05)
         except TimeoutError as exc:

@@ -9,6 +9,7 @@ import httpx
 from cqa.backend.models import Conversation, Message
 from cqa.backend.schemas import DatasetEnvelope, ImportResult
 from cqa.infra.llm.base import ProviderError, request_json
+from cqa.normalization import repair_mojibake
 
 
 class Conflict(ValueError):
@@ -83,7 +84,7 @@ def import_dataset(db, envelope: DatasetEnvelope, *, session=None):
                         message_index=index,
                         speaker=message.speaker,
                         timestamp_original=message.timestamp,
-                        text=message.text,
+                        text=repair_mojibake(message.text),
                     )
                 )
             imported += 1
