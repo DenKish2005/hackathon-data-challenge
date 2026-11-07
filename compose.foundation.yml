@@ -23,6 +23,7 @@ services:
       CQA_STRATEGY: ${CQA_STRATEGY:-two_pass}
       CQA_AGENT_CONCURRENCY: ${CQA_AGENT_CONCURRENCY:-1}
       FREEDOM_DEV_API_URL: ${FREEDOM_DEV_API_URL:-}
+      CQA_DATA_URL: ${CQA_DATA_URL:-}
       FREEDOM_CONTROL_API_URL: ${FREEDOM_CONTROL_API_URL:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=5)"]
