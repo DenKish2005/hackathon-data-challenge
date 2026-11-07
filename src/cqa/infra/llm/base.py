@@ -1,8 +1,11 @@
 """Small provider contract with bounded retries and redacted failures."""
 
 import asyncio
+import json
 import logging
+from time import perf_counter
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -21,6 +24,14 @@ logging.getLogger("httpx").addFilter(RedactHTTPLogs())
 
 class ProviderError(RuntimeError):
     pass
+
+
+class GeneratedJSON(dict):
+    """Keep the existing dict contract; metadata belongs to this call, not shared state."""
+
+    def __init__(self, payload, metadata):
+        super().__init__(payload)
+        self.metadata = metadata
 
 
 class Provider(Protocol):
@@ -58,13 +69,41 @@ async def request_json(client, method, url, *, attempts=3, backoff=0.25, **kwarg
 class HTTPProvider:
     is_mock = False
 
-    def __init__(self, base_url, model, *, api_key="", concurrency=2, timeout=60, transport=None):
+    def __init__(
+        self,
+        base_url,
+        model,
+        *,
+        api_key="",
+        concurrency=2,
+        timeout=60,
+        transport=None,
+        context_size=65536,
+        output_limit=8000,
+        attempts=3,
+    ):
+        parts = urlsplit(base_url)
+        if (
+            parts.scheme not in ("http", "https")
+            or not parts.hostname
+            or parts.username
+            or parts.password
+            or parts.query
+            or parts.fragment
+            or not 1 <= concurrency <= 16
+            or timeout <= 0
+            or not 1 <= attempts <= 5
+            or output_limit < 1
+            or context_size <= output_limit + 1024
+        ):
+            raise ValueError("Invalid provider endpoint or limits")
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout = timeout
         self.transport = transport
         self.semaphore = asyncio.Semaphore(concurrency)
+        self.context_size, self.output_limit, self.attempts = context_size, output_limit, attempts
 
     def configuration(self):
         # Hash used internally, never returned by the API. No API key in persistent cache material.
@@ -73,8 +112,38 @@ class HTTPProvider:
             "base_url": self.base_url,
             "model": self.model,
             "temperature": 0,
-            "output_limit": 8000,
+            "output_limit": self.output_limit,
+            "context_size": self.context_size,
+            "adapter_version": 2,
         }
+
+    def check_context(self, messages, schema):
+        # UTF-8 byte count is a conservative bound, not a reported token measurement.
+        size = len(json.dumps(messages, ensure_ascii=False).encode())
+        size += len(json.dumps(schema, ensure_ascii=False).encode())
+        if size + self.output_limit + 1024 > self.context_size:
+            raise ProviderError("Input exceeds configured safe model context")
+
+    def decoded(self, content, usage, started):
+        try:
+            payload = json.loads(content)
+            if not isinstance(payload, dict):
+                raise ValueError("Expected a JSON object")
+            # Reject NaN/Infinity even before the downstream strict domain schema.
+            json.dumps(payload, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ProviderError("Provider returned invalid or incomplete output") from exc
+        return GeneratedJSON(
+            payload,
+            {
+                "model": self.model,
+                "provider": type(self).__name__,
+                "duration_seconds": round(perf_counter() - started, 6),
+                "usage": {
+                    key: value for key, value in usage.items() if type(value) is int and value >= 0
+                },
+            },
+        )
 
     async def post(self, path, body):
         async with (
@@ -88,5 +157,10 @@ class HTTPProvider:
         ):
             headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
             return await request_json(
-                client, "POST", self.base_url + path, json=body, headers=headers
+                client,
+                "POST",
+                self.base_url + path,
+                json=body,
+                headers=headers,
+                attempts=self.attempts,
             )

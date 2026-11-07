@@ -38,7 +38,13 @@ from cqa.backend.services.checklist_service import create_checklist
 from cqa.backend.services.dataset_importer import Conflict, fetch_organizer, import_dataset
 from cqa.backend.services.evaluation_jobs import create_job, inputs, job_view
 from cqa.infra.llm import ProviderError, build_provider
-from cqa.infra.orchestrator.pipeline import Finding, MockEvaluator, Pipeline, ProviderEvaluator
+from cqa.infra.orchestrator.pipeline import (
+    Finding,
+    MockEvaluator,
+    Pipeline,
+    ProviderCritic,
+    ProviderEvaluator,
+)
 from cqa.infra.orchestrator.queue import Worker, worker_lock
 from cqa.workspace import default_checklist
 
@@ -115,7 +121,9 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
     if pipeline is None:
         provider = build_provider(settings)
         evaluator = MockEvaluator() if provider.is_mock else ProviderEvaluator(provider)
-        pipeline = Pipeline(evaluator)
+        pipeline = Pipeline(
+            evaluator, critic=None if provider.is_mock else ProviderCritic(evaluator)
+        )
     worker = Worker(db, pipeline, settings)
 
     @asynccontextmanager
