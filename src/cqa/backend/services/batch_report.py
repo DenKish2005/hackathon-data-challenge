@@ -31,6 +31,9 @@ def summarize(results, elapsed, total):
         "retries": sum(c.get("retries", 0) for c in calls),
         "invalid_responses": sum(
             c.get("error_code") in ("invalid_json", "invalid_output") for c in calls
+        )
+        + sum(
+            m.get("error_code") == "validation_error" for r in results for m in r.get("metrics", [])
         ),
         "failure_reasons": dict(
             Counter(

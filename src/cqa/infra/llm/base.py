@@ -57,6 +57,8 @@ async def request_json(client, method, url, *, attempts=3, backoff=0.25, metrics
         try:
             response = await client.request(method, url, **kwargs)
             code = response.status_code
+            if metrics is not None:
+                metrics["last_http_status"] = code
             logger.info("upstream attempt=%d status=%d", attempt + 1, code)
             if code == 429 or 500 <= code < 600:
                 if attempt + 1 < attempts:
@@ -65,6 +67,10 @@ async def request_json(client, method, url, *, attempts=3, backoff=0.25, metrics
             response.raise_for_status()
             return response.json()
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            if metrics is not None:
+                metrics["transport_kind"] = (
+                    "timeout" if isinstance(exc, httpx.TimeoutException) else "network"
+                )
             logger.info("upstream attempt=%d transport_error", attempt + 1)
             if attempt + 1 == attempts:
                 raise ProviderError("Upstream unavailable or timed out", "transport_error") from exc

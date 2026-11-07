@@ -69,6 +69,18 @@ def test_unknown_tokens_and_cache_do_not_invent_throughput():
     result = summarize([{"status": "completed", "cached": True}], 1, 1)
     assert result["estimated_65_seconds"] is None
     assert result["input_tokens"] is None
+    failed = summarize(
+        [
+            {
+                "status": "failed",
+                "metrics": [{"status": "failed", "error_code": "validation_error", "calls": []}],
+            }
+        ],
+        1,
+        1,
+    )
+    assert failed["invalid_responses"] == 1
+    assert failed["estimated_65_seconds"] is None
 
 
 def test_new_group_uses_separate_private_full_url(monkeypatch, tmp_path):
@@ -79,3 +91,44 @@ def test_new_group_uses_separate_private_full_url(monkeypatch, tmp_path):
     settings = Settings()
     assert settings.organizer_urls["NEW"] == url
     assert "private" not in repr(settings)
+
+
+def test_interrupt_writes_report_and_keeps_durable_job_id(monkeypatch, tmp_path):
+    def handler(request):
+        if request.url.path.endswith("checklists/official"):
+            data = {"version": 1}
+        else:
+            data = {"job_id": "durable", "status": "pending"}
+        return httpx.Response(200, json=data)
+
+    original = httpx.Client
+    monkeypatch.setattr(
+        "cqa.backend.__main__.httpx.Client",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+
+    def interrupt(*args, **kwargs):
+        import time
+
+        time.sleep(0.05)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("concurrent.futures.wait", interrupt)
+    args = SimpleNamespace(
+        api_url="http://synthetic.test",
+        checklist_id="official",
+        version=1,
+        id="a",
+        limit=None,
+        timeout=5,
+        force=False,
+        retry_failed=False,
+        report=tmp_path / "batch.json",
+        failed_only=False,
+        parallel=1,
+    )
+    assert evaluate(args) == 130
+    report = json.loads(args.report.read_text())
+    assert report["interrupted"]
+    assert report["results"][0]["job_id"] == "durable"
+    assert report["summary"]["completed"] == 0

@@ -152,6 +152,15 @@ class Worker:
                 else "internal_error"
             )
             metrics.update(status="failed", error_code=code)
+            error = {
+                "transport_error": "LLM unavailable or timed out; check the model service",
+                "http_error": "LLM request rejected; check service configuration and resources",
+                "invalid_json": "LLM service returned invalid JSON; no evaluation saved",
+                "invalid_output": "LLM returned invalid or truncated output; no evaluation saved",
+                "context_limit": "Full input exceeds safe context; increase LLM_CONTEXT_SIZE",
+                "validation_error": "Result failed schema or evidence validation; "
+                "no evaluation saved",
+            }.get(code, error)
             with self.db.sessions.begin() as session:
                 job = session.get(EvaluationJob, job_id)
                 job.status, job.error_message, job.updated_at = "failed", error, now()

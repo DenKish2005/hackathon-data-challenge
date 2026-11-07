@@ -67,6 +67,9 @@ def resources():
 
 
 def doctor(settings):
+    from cqa.infra.llm import build_provider
+
+    build_provider(settings)  # Apply the same endpoint and external-data policy as the server.
     db_path = make_url(settings.database_url).database
     location = Path(db_path).resolve().parent if db_path else Path.cwd()
     while not location.exists():
