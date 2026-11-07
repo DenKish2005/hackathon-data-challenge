@@ -74,10 +74,29 @@ def save_report(path, checklist_id, version, results, elapsed, total, interrupte
             "score",
             "wait_seconds",
             "error",
+            "queue_seconds",
+            "job_seconds",
+            "llm_calls",
+            "retries",
+            "input_tokens",
+            "output_tokens",
+            "invalid_responses",
+            "failure_reasons",
         ]
         with temp.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
             writer.writeheader()
-            writer.writerows(results)
+            for row in results:
+                summary = summarize([row], row.get("wait_seconds", 0), 1)
+                metrics = row.get("metrics", [])
+                writer.writerow(
+                    {
+                        **row,
+                        **summary,
+                        "queue_seconds": sum(m.get("queue_seconds", 0) for m in metrics),
+                        "job_seconds": sum(m.get("duration_seconds", 0) for m in metrics),
+                        "failure_reasons": json.dumps(summary["failure_reasons"]),
+                    }
+                )
         temp.replace(csv_path)
     return report

@@ -98,3 +98,16 @@ def test_readiness_reports_model_outage_without_leaking_endpoint(tmp_path, monke
         assert response.status_code == 503
         assert response.json()["status"] == "model_unavailable"
         assert "private" not in json.dumps(response.json())
+
+
+def test_dead_worker_is_not_reported_ready(tmp_path, monkeypatch):
+    async def crashed(self):
+        raise RuntimeError("private storage error")
+
+    monkeypatch.setattr("cqa.infra.orchestrator.queue.Worker.run", crashed)
+    app = create_app(Settings(database_url=f"sqlite:///{tmp_path / 'worker.db'}"))
+    with TestClient(app) as client:
+        response = client.get("/api/ready")
+        assert response.status_code == 503
+        assert response.json()["status"] == "worker_unavailable"
+        assert "private" not in response.text

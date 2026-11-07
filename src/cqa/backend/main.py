@@ -118,6 +118,7 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
                 with worker_lock(db):
                     worker.recover()
                     tasks = [asyncio.create_task(worker.run()) for _ in range(settings.concurrency)]
+                    app.state.worker_tasks = tasks
                     try:
                         yield
                     finally:
@@ -200,6 +201,8 @@ def create_app(settings=None, pipeline=None, *, worker_enabled=True, transport=N
     @app.get("/api/ready")
     async def ready():
         state = await health()
+        if worker_enabled and any(task.done() for task in app.state.worker_tasks):
+            state.status = "worker_unavailable"
         return JSONResponse(
             status_code=200 if state.status in ("ready", "mock", "configured") else 503,
             content=state.model_dump(),
