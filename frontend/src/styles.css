@@ -3521,3 +3521,10 @@ th {
     font-size: 9px;
   }
 }
+
+.ai-evaluation { background: var(--surface, #fff); color: var(--text, #17251f); border: 1px solid #d5e4da; border-radius: 12px; padding: 18px; margin: 16px 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.ai-evaluation > div { flex: 1 1 380px; }
+.ai-evaluation p { font-size: 13px; margin: 6px 0; }
+.ai-evaluation details, .ai-evaluation [role=alert] { width: 100%; overflow-wrap: anywhere; }
+.ai-evaluation .button:disabled { opacity: .55; cursor: wait; }
+.sync-status { position: fixed; bottom: 6px; right: 12px; max-width: min(90vw, 600px); font-size: 11px; background: #eaf6ed; color: #24452d; padding: 4px 8px; border-radius: 6px; z-index: 10; }

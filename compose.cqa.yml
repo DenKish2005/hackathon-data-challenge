@@ -1,0 +1,14 @@
+services:
+  ollama:
+    image: ollama/ollama:0.13.5
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      NO_PROXY: localhost,127.0.0.1,0.0.0.0
+      SSL_CERT_FILE: /run/ca-certificates.crt
+      OLLAMA_NUM_PARALLEL: 1
+    volumes:
+      - ollama-models:/root/.ollama
+      - /etc/ssl/certs/ca-certificates.crt:/run/ca-certificates.crt:ro
+volumes:
+  ollama-models:

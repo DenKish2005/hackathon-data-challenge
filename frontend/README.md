@@ -34,9 +34,9 @@ Production: `npm run build`. Serve `dist/` using your web server, or use `npm ru
 
 ## Demo boundaries
 
-The UI starts with **synthetic demonstration conversations**, not the organizers' DEV dataset. Analytics charts are computed from the current demonstration evaluations. The application does not call an LLM, run agents, import automatically from a signed URL, or authenticate users. Agent cards explain planned roles. An imported conversation has no generated evaluation. No API keys or signed URLs belong in the frontend.
+The UI starts with **synthetic demonstration conversations**, not the organizers' DEV dataset. Analytics charts are computed from the current demonstration evaluations. The Python CQA API now evaluates imported conversations through local Ollama, with a second critic pass and server-side scoring. Start the service using the root README. The standalone static site remains a UI demo. Imported conversations have no evaluation until an API request succeeds. No API keys or signed URLs belong in the frontend.
 
-Browser-local state is saved in localStorage. This is convenient for a prototype, not shared server storage. Clear the site's browser storage to reset the demo. Store real conversations and decisions on your backend when connecting the product; review browser retention needs before importing confidential data.
+State is saved in SQLite through the Python API, with a browser-local fallback in localStorage. This is convenient for a prototype, not shared server storage. Clear the site's browser storage to reset the demo. Store real conversations and decisions on your backend when connecting the product; review browser retention needs before importing confidential data.
 
 ## Backend integration contract
 
@@ -48,7 +48,7 @@ Coordinate any contract change with both the frontend and backend owners. Do not
 - CriterionResult: `criterionId`, `answer`, `reason`, `evidenceId`.
 - Existing evaluations may carry `checklistVersion` and `criteriaSnapshot`; resolve appeals against that snapshot, not newly edited rules.
 
-Connect a backend service through a dedicated client module in `frontend/src/`, replacing local persistence and fixture reads. Suggested endpoints: conversations, checklist versions, evaluation jobs/results, appeals and review decisions. Backend must preserve full immutable evaluation history, validate all edits and recalculate independently of the browser. For missing actions or N/A, extend the response contract with checked ranges and explicit applicability explanations. Calls need audio-relative timing before implementing seek-to-evidence; the current UI links to original audio if provided.
+The current local Python service is implemented in `src/cqa/`; UI integration lives in `EvaluationPanel.jsx` and `WorkspaceSync.jsx`. Further backend integrations can use a dedicated client module in `frontend/src/`. Suggested endpoints: conversations, checklist versions, evaluation jobs/results, appeals and review decisions. Backend must preserve full immutable evaluation history, validate all edits and recalculate independently of the browser. For missing actions or N/A, extend the response contract with checked ranges and explicit applicability explanations. Calls need audio-relative timing before implementing seek-to-evidence; the current UI links to original audio if provided.
 
 Scoring normalizes numeric scales, excludes allowed N/A weights, rounds the final result to two decimals and treats critical errors separately. Missing results return an incomplete score, not zero. The frontend calculator is for the prototype and should be verified against the backend implementation.
 

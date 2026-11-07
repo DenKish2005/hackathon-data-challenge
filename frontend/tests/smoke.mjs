@@ -49,6 +49,9 @@ try {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1000 },
   });
+  await page.route("**/api/workspace", (route) =>
+    route.fulfill({ json: { revision: 0, data: null } }),
+  );
   const errors = [];
   await page.emulateMedia({ reducedMotion: "reduce" });
   page.on("pageerror", (e) => errors.push(e.message));
