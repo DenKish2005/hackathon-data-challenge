@@ -1,0 +1,205 @@
+{
+  "node_count": 1118,
+  "unverified_node_count": 0,
+  "raw_edge_count": 3127,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 339,
+  "external_reference_edges": 3,
+  "self_loop_edges": 1,
+  "valid_candidate_edges": 2785,
+  "exact_duplicate_edges": 1,
+  "directed_unique_endpoint_pairs": 2642,
+  "directed_same_endpoint_collapsed_edges": 143,
+  "undirected_unique_endpoint_pairs": 2642,
+  "undirected_same_endpoint_collapsed_edges": 143,
+  "same_endpoint_group_count": 135,
+  "relation_variant_groups": 121,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 11,
+  "context_variant_groups": 3,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 1177,
+  "post_build_edge_count": 2975,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "C:\\Users\\danik\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\graphify\\extract.py",
+    "total_sites": 12,
+    "sites": [
+      {
+        "line": 1829,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2393,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2395,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 3062,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 3209,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n.get(\"id\") for n in nodes}"
+      },
+      {
+        "line": 4350,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 4536,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 7947,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 8055,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 8134,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 8659,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 8660,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "github_workflows_tests_pytest_steps",
+      "target": "github_workflows_tests_steps_run",
+      "edge_count": 5,
+      "relations": [
+        "contains"
+      ],
+      "source_files": [
+        ".github/workflows/tests.yml"
+      ],
+      "source_locations": [
+        "L16",
+        "L17",
+        "L18",
+        "L19",
+        "L22"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "github_workflows_frontend_pages_build_steps",
+      "target": "github_workflows_frontend_pages_steps_uses",
+      "edge_count": 4,
+      "relations": [
+        "contains"
+      ],
+      "source_files": [
+        ".github/workflows/frontend-pages.yml"
+      ],
+      "source_locations": [
+        "L24",
+        "L25",
+        "L37",
+        "L39"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "github_workflows_frontend_pages_build_steps",
+      "target": "github_workflows_frontend_pages_steps_name",
+      "edge_count": 4,
+      "relations": [
+        "contains"
+      ],
+      "source_files": [
+        ".github/workflows/frontend-pages.yml"
+      ],
+      "source_locations": [
+        "L30",
+        "L33",
+        "L36",
+        "L38"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "src_tokenops_guard_demo_with_budget",
+      "target": "src_tokenops_guard_config_settings",
+      "edge_count": 3,
+      "relations": [
+        "references",
+        "uses"
+      ],
+      "source_files": [
+        "src/tokenops_guard/demo.py"
+      ],
+      "source_locations": [
+        "L21"
+      ],
+      "contexts": [
+        "",
+        "parameter_type",
+        "return_type"
+      ]
+    },
+    {
+      "source": "github_workflows_frontend_pages_build_steps",
+      "target": "github_workflows_frontend_pages_steps_with",
+      "edge_count": 2,
+      "relations": [
+        "contains"
+      ],
+      "source_files": [
+        ".github/workflows/frontend-pages.yml"
+      ],
+      "source_locations": [
+        "L26",
+        "L40"
+      ],
+      "contexts": [
+        ""
+      ]
+    }
+  ]
+}
