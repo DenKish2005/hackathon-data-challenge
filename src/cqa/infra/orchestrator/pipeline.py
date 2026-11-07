@@ -3,7 +3,7 @@
 import json
 from typing import Protocol
 
-from pydantic import Field
+from pydantic import Field, StrictFloat, StrictStr
 
 from cqa.backend.schemas import ChecklistView, ConversationDetail, Schema
 from cqa.service import RULES, score
@@ -11,7 +11,7 @@ from cqa.service import RULES, score
 
 class Finding(Schema):
     criterion_id: str
-    answer: str | float
+    answer: StrictStr | StrictFloat
     explanation: str = Field(min_length=1, max_length=3000)
     message_ids: list[str] = Field(default_factory=list, max_length=500)
     checked_message_ids: list[str] = Field(default_factory=list, max_length=500)

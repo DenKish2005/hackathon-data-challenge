@@ -105,6 +105,7 @@ class ReviewHistory(Base):
     review_id: Mapped[str] = mapped_column(primary_key=True, default=identifier)
     appeal_id: Mapped[str] = mapped_column(ForeignKey(Appeal.appeal_id))
     evaluation_id: Mapped[str] = mapped_column(ForeignKey(Evaluation.evaluation_id), index=True)
+    revision: Mapped[int]
     original_result: Mapped[dict] = mapped_column(JSON)
     final_result: Mapped[dict] = mapped_column(JSON)
     decision: Mapped[str]
