@@ -54,5 +54,11 @@
     "api/**/*.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:__cqa_path*",
+      "destination": "/api/proxy?__cqa_path=:__cqa_path*"
+    }
+  ]
 }

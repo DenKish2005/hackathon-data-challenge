@@ -1,7 +1,7 @@
 const { test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { Readable } = require("node:stream");
-const proxy = require("../api/[...path].js");
+const proxy = require("../api/proxy.js");
 
 const KEYS = [
   "CQA_BACKEND_URL",
@@ -395,4 +395,53 @@ test("HTML or oversized successful upstream responses are not served as API JSON
     async () => new Response('"' + "a".repeat(4 * 1024 * 1024) + '"'),
   );
   assert.equal((await call(request("/api/health"))).statusCode, 502);
+});
+
+test("Vercel rewrite metadata does not become an upstream query parameter", async (t) => {
+  const fetch = noFetch(t);
+  for (const path of [
+    "/api/health?__cqa_path=health",
+    "/api/proxy?__cqa_path=health",
+  ]) {
+    const response = await call(request(path));
+    assert.equal(response.statusCode, 503);
+    assert.match(response.json.detail, /ещё не подключён/);
+  }
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+test("rewritten organizer and nested history paths preserve actual API semantics", async (t) => {
+  configured();
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    });
+  });
+  assert.equal(
+    (await call(request("/api/proxy?__cqa_path=organizer&group_id=DEV")))
+      .statusCode,
+    200,
+  );
+  assert.equal(
+    (
+      await call(
+        request("/api/history/chat%2F1?__cqa_path=history%2Fchat%252F1"),
+      )
+    ).statusCode,
+    200,
+  );
+  assert.deepEqual(urls, [
+    "https://backend.private.example/api/organizer?group_id=DEV",
+    "https://backend.private.example/api/history/chat%2F1",
+  ]);
+  assert.equal(
+    (await call(request("/api/health?__cqa_path=workspace"))).statusCode,
+    400,
+  );
+  assert.equal(
+    (await call(request("/api/proxy?__cqa_path=..%2Fhealth"))).statusCode,
+    404,
+  );
 });

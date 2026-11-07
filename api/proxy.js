@@ -42,6 +42,34 @@ function routeFor(req) {
   } catch {
     throw new ProxyError(400, "Некорректный API-запрос.");
   }
+  // Vercel rewrites can carry the matched route as an internal query parameter.
+  const rewrite = url.searchParams.getAll("__cqa_path");
+  if (rewrite.length) {
+    const value = rewrite[0];
+    if (
+      rewrite.length !== 1 ||
+      !value ||
+      value.length > 512 ||
+      value.includes("\\") ||
+      /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i.test(value)
+    ) {
+      throw new ProxyError(404, "API-маршрут не найден.");
+    }
+    if (url.pathname === "/api/proxy") {
+      url.pathname = "/api/" + value;
+    } else {
+      let matches = false;
+      try {
+        matches =
+          decodeURIComponent(url.pathname.slice(5)) ===
+          decodeURIComponent(value);
+      } catch {
+        /* Invalid encoding is rejected. */
+      }
+      if (!matches) throw new ProxyError(400, "Некорректный API-маршрут.");
+    }
+    url.searchParams.delete("__cqa_path");
+  }
   let methods = METHODS.get(url.pathname);
   if (url.pathname.startsWith("/api/history/")) {
     let id;
