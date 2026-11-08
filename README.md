@@ -2,8 +2,8 @@
 
 - Daniyar Kshibekov
 - Insar Kairulla
-- Nazerke SURNAME
-- Syrym SURNAME
+- Nazerke Rymbek
+- Syrym Siyazbek
 
 
 # Freedom CQA — оценка качества диалогов
