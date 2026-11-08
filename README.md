@@ -1,3 +1,10 @@
+# Team Members
+
+Daniyar Kshibekov
+Insar SURNAME
+Nazerke SURNAME
+Syrym SURNAME
+
 # Freedom CQA — оценка качества диалогов
 
 Единый backend: Foundation хранит диалоги, неизменяемые версии чек-листов,
