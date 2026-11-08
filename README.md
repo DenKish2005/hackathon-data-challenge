@@ -1,7 +1,7 @@
 # Team Members
 
 - Daniyar Kshibekov
-- Insar SURNAME
+- Insar Kairulla
 - Nazerke SURNAME
 - Syrym SURNAME
 
