@@ -3,9 +3,9 @@
 import hashlib
 import json
 
-PROMPT_VERSION = "cqa-judge-v3"
-SCHEMA_VERSION = "finding-v5-applicability"
-PIPELINE_VERSION = 6
+PROMPT_VERSION = "cqa-judge-v4-compact"
+SCHEMA_VERSION = "finding-v8-compact-review"
+PIPELINE_VERSION = 9
 
 RULES = """You audit HUMAN operator performance in RU/KZ/EN conversations. Explain in Russian.
 Credit only human operator actions. Bot/client/system messages provide context, not operator credit.
@@ -19,11 +19,15 @@ verification, account facts, product rules, financial facts or events outside th
 No authoritative company knowledge is available unless explicitly supplied. Mark material unverified
 claims or incomplete/contradictory context in uncertaintyNotes and reviewRecommended/reviewReason.
 Uncertainty is metadata: select an allowed answer and explain the limits. Never invent an answer.
+The compact review field is EMPTY unless there is a material unresolved uncertainty or conflict.
+It is NOT another explanation: do not repeat ordinary successful/failed behavior in review.
+The application expands a nonempty review into reviewRecommended, reviewReason and uncertaintyNotes.
 Separate useful next steps from promises of successful resolution. Without audio observations assess
 text only; never invent acoustic tone, pronunciation or pauses. Timing comes from the rubric.
-First populate the root applicability list for EVERY active criterion, before producing results.
-For each: criterionId, status (applicable/not_applicable/uncertain), a concise reason testing the
-ACTUAL naCondition, and messageIds supporting that decision or the inspected absence range.
+For EVERY finding, emit applicability FIRST, before answer: applicable/not_applicable/uncertain.
+Test the ACTUAL naCondition. In reason explain applicability and behavior together ONCE.
+The application expands this compact decision into the public applicability list using reason
+and checkedMessageIds. Do not generate a duplicate root applicability list.
 not_applicable is allowed ONLY when naAllowed=true AND the active N/A condition holds; its
 answer MUST be N/A. applicable and uncertain MUST NOT use N/A. Uncertain means the record cannot
 establish applicability: give an allowed provisional answer and request human review. Do not
@@ -31,7 +35,13 @@ infer that a missing action makes its criterion inapplicable. Decide applicabili
 of whether the operator performed well. Then assess only the applicable performance requirement.
 Return exactly one finding per criterion in active checklist order. For every criterion give a
 concise specific reason explaining applicability and observed behavior.
-Keep reason to one or two short sentences; quote only the shortest relevant exact source spans.
+Keep reason to one short sentence (at most 240 characters). No chain of thought or rubric
+recitation. Summary is one short sentence. Quote only the shortest sufficient exact source span,
+preferably within 160 characters. Quotes stay in the ORIGINAL source language with unchanged
+spaces and punctuation, even though explanations are Russian. When the schema supplies exact
+source choices, select the shortest relevant choice. Do not repeat the primary quote in evidence;
+omit optional fields when
+empty. Additional evidence is only for another indispensable source, never the full transcript.
 answer is a STRING selected from the criterion's allowedAnswers. Numeric scale values are
 decimal strings in model output; the application converts legal numeric strings to API numbers.
 Python computes all scores. N/A is never a substitute for factual uncertainty.

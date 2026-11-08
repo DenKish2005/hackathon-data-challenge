@@ -1,7 +1,8 @@
 # Applicability and focused semantic review
 
-The scorer remains the existing Decimal engine. The evaluator now asks for a
-separate `applicability` decision for every active criterion **before** findings:
+The scorer remains the existing Decimal engine. The public result retains a
+separate `applicability` decision for every active criterion. The compact model
+wire puts that explicit status before each finding's answer, then parsing expands it:
 
 ```json
 {
@@ -72,8 +73,8 @@ $env:PYTHONPATH = 'C:\path\to\selected-source\src'
 python -m cqa.judge_benchmark run `
   --cases 'C:\private\cases.json' `
   --output-dir 'C:\private\new-run' `
-  --repeats 2 --max-evaluations 3 `
-  --max-model-calls 8 --deadline-seconds 900
+  --repeats 1 --max-evaluations 2 `
+  --max-model-calls 12 --deadline-seconds 720
 
 python -m cqa.judge_benchmark compare `
   --before 'C:\private\before.json' `
@@ -84,8 +85,9 @@ python -m cqa.judge_benchmark compare `
 ```
 
 The driver hard-limits selection to two cases, two repeats, four evaluations,
-eight generation invocations and 900 seconds. The example requests only three
-evaluations, alternating cases before repeating the first. All remaining live
+twelve generation invocations and 900 seconds. The example requests only two
+evaluations within a shared 720-second budget. Each two_pass evaluation can need
+up to six invocations including legitimate repairs. All remaining live
 testing in one task must share one budget; do not reset the limits by launching
 another run. Provider transport retries are disabled. Failed attempts remain in
 the output, and partial predictions are saved individually.

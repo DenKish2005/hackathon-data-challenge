@@ -10,6 +10,7 @@ from pydantic import Field, StrictFloat, StrictStr
 
 from cqa import criterion_agents
 from cqa.backend.schemas import ChecklistView, ConversationDetail, Schema
+from cqa.infra.llm.base import call_metrics
 from cqa.infra.llm.openai_compatible import OpenAICompatibleProvider
 from cqa.normalization import NORMALIZATION_VERSION
 from cqa.prompts import (
@@ -237,7 +238,13 @@ class ProviderEvaluator:
                     messages[0]["content"] += "\nReturn JSON using this schema:\n" + json.dumps(
                         schema, ensure_ascii=False
                     )
-                generated = await self.provider.generate(messages, schema)
+                trace = call_metrics.get()
+                trace_start = len(trace) if trace is not None else 0
+                try:
+                    generated = await self.provider.generate(messages, schema)
+                finally:
+                    for entry in (trace or [])[trace_start:]:
+                        entry["phase"] = phase
                 metadata = getattr(generated, "metadata", {})
                 provider_calls.append(metadata)
                 usage = metadata.get("usage", {})
@@ -246,6 +253,7 @@ class ProviderEvaluator:
                     "model": metadata.get("model", self.model),
                     "prompt_eval_count": usage.get("input_tokens"),
                     "eval_count": usage.get("output_tokens"),
+                    "_diagnostics": (call_metrics.get() or [None])[-1],
                 }
 
             phase_calls = []

@@ -21,6 +21,10 @@ from cqa.prompts import PIPELINE_VERSION, PROMPT_VERSION, SCHEMA_VERSION, finger
 from cqa.service import EvaluationRequest, score
 
 
+class BenchmarkBudgetExceeded(RuntimeError):
+    """Harness limit, not a model/evaluator validation failure."""
+
+
 def private_path(value):
     path = Path(value).resolve()
     if any(git_marker(parent) for parent in [path, *path.parents]):
@@ -284,6 +288,7 @@ def compare_runs(before, after, cases, labels):
 
 
 async def run(args):
+    from cqa.infra.llm.base import call_metrics
     from cqa.infra.llm.ollama import OllamaProvider
     from cqa.infra.orchestrator.pipeline import Pipeline, ProviderCritic, ProviderEvaluator
 
@@ -301,8 +306,8 @@ async def run(args):
         raise ValueError("Select at most two cases")
     if not 1 <= args.repeats <= 2 or not 1 <= args.max_evaluations <= 4:
         raise ValueError("At most two repeats and four evaluations are allowed")
-    if not 1 <= args.max_model_calls <= 8 or not 0 < args.deadline_seconds <= 900:
-        raise ValueError("At most eight generation calls and 900 seconds are allowed")
+    if not 1 <= args.max_model_calls <= 12 or not 0 < args.deadline_seconds <= 900:
+        raise ValueError("At most twelve generation calls and 900 seconds are allowed")
     output = private_path(args.output_dir)
     output.mkdir(parents=True, exist_ok=False)
     provider = OllamaProvider(
@@ -329,7 +334,7 @@ async def run(args):
     async def capture(messages, schema):
         nonlocal count
         if count >= args.max_model_calls:
-            raise RuntimeError("Model-call budget exhausted")
+            raise BenchmarkBudgetExceeded("Model-call budget exhausted")
         count += 1
         number = count
         write_new(
@@ -362,6 +367,8 @@ async def run(args):
                 break
             before = count
             case_started = time.perf_counter()
+            diagnostics = []
+            diagnostic_token = call_metrics.set(diagnostics)
             try:
                 remaining = args.deadline_seconds - (case_started - started)
                 if remaining <= 0 or count >= args.max_model_calls:
@@ -386,12 +393,18 @@ async def run(args):
                     "repeat": repeat,
                     "status": "failed",
                     "errorType": type(exc).__name__,
+                    "errorCode": "model_call_budget"
+                    if isinstance(exc, BenchmarkBudgetExceeded)
+                    else getattr(exc, "code", "evaluation_error"),
                     "model": args.model,
                     "generation": generation,
                     "calls": count - before,
                     "seconds": round(time.perf_counter() - case_started, 3),
                 }
                 stop = isinstance(exc, (TimeoutError, RuntimeError))
+            finally:
+                call_metrics.reset(diagnostic_token)
+            record["diagnostics"] = diagnostics
             records.append(record)
             write_new(output / f"evaluation-{len(records):02}.json", record)
             print(
@@ -425,14 +438,14 @@ def main():
     live.add_argument("--only", nargs="+")
     live.add_argument("--base-url", default="http://127.0.0.1:11434")
     live.add_argument("--model", default="qwen3:4b-instruct")
-    live.add_argument("--context-size", type=int, default=32768)
-    live.add_argument("--output-limit", type=int, default=5000)
+    live.add_argument("--context-size", type=int, default=24576)
+    live.add_argument("--output-limit", type=int, default=2500)
     live.add_argument("--timeout", type=float, default=300)
     live.add_argument("--repeats", type=int, default=1)
     live.add_argument("--max-cases", type=int, default=2)
-    live.add_argument("--max-evaluations", type=int, default=3)
-    live.add_argument("--max-model-calls", type=int, default=8)
-    live.add_argument("--deadline-seconds", type=float, default=900)
+    live.add_argument("--max-evaluations", type=int, default=2)
+    live.add_argument("--max-model-calls", type=int, default=12)
+    live.add_argument("--deadline-seconds", type=float, default=720)
     compare = sub.add_parser("compare")
     for name in ["before", "after", "cases", "labels", "output"]:
         compare.add_argument("--" + name, required=True)

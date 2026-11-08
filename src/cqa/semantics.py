@@ -16,6 +16,23 @@ NA_ASSERTION = re.compile(
     re.IGNORECASE,
 )
 
+ANSWER_ASSERTION = re.compile(
+    r"(?:^|[.!?]\s+)(?:(?:следовательно|поэтому|thus|therefore)[,:]?\s+)?"
+    r"(?:(?:итогов(?:ый|ая)|выбранн(?:ый|ая)|final)\s+)?(?:ответ|оценка|answer|rating)\s*"
+    r"(?:[:=—-]\s*|(?:is|должен быть)\s+)[«\"']?(N/A|Да|Нет|yes|no|\d+(?:\.\d+)?)"
+    r"(?=[\s.!?,;»\"']|$)",
+    re.IGNORECASE,
+)
+EXCLUDED_TIMING = re.compile(
+    r"(?:должен|обязан|согласно правилу|порог|превыш\w*|укладыва\w*|менее|within|must|threshold)"
+    r"[^.!?]{0,90}(?:3\s*мин|тр[её]х[ -]?мин|three[ -]?minute|3[ -]?minute)",
+    re.IGNORECASE,
+)
+TIMING_EXCLUSION = re.compile(r"исключ|не примен|не учитыв|excluded|not appl|ignore", re.IGNORECASE)
+FIRST_RESPONSE = re.compile(
+    r"перв\w*\s+ответ|время\s+ответа|first[ -]response|initial reply", re.IGNORECASE
+)
+
 
 def semantic_issues(request, analysis):
     """Return observable internal conflicts, not assertions of expert accuracy."""
@@ -40,8 +57,29 @@ def semantic_issues(request, analysis):
                 add(cid, "Uncertain applicability requires human review, not an N/A exclusion")
         if finding.answer != "N/A" and NA_ASSERTION.search(finding.reason):
             add(cid, "Explanation explicitly selects N/A but answer does not")
+        for assertion in ANSWER_ASSERTION.finditer(finding.reason):
+            claimed = assertion.group(1)
+            if claimed.casefold() in {"да", "yes", "нет", "no", "n/a"}:
+                claimed = {"да": "Да", "yes": "Да", "нет": "Нет", "no": "Нет", "n/a": "N/A"}[
+                    claimed.casefold()
+                ]
+            else:
+                claimed = float(claimed)
+            if claimed != finding.answer:
+                add(cid, "Explicit final answer in explanation disagrees with the selected answer")
 
         name = profile(criterion)
+        if name == "management" and any(
+            FIRST_RESPONSE.search(sentence)
+            and EXCLUDED_TIMING.search(sentence)
+            and not TIMING_EXCLUSION.search(sentence)
+            for sentence in re.split(r"[.!?]\s*", finding.reason)
+        ):
+            add(
+                cid,
+                "Explanation applies the first-response timing rule "
+                "excluded by the active definition",
+            )
         checks = finding.checks
         expected = set(GUIDANCE[name][1]) if name else set()
         if decision and expected and not checks:
@@ -82,7 +120,7 @@ def semantic_issues(request, analysis):
             continue
         finding = next(r for r in analysis.results if r.criterionId == criterion.id)
         if finding.answer == max(criterion.scale) and any(
-            r.resolution == "unanswered" for r in analysis.requests
+            r.resolution in {"unanswered", "partial"} for r in analysis.requests
         ):
             add(criterion.id, "Maximum consultation level conflicts with an unanswered request")
         if finding.answer == "N/A" and analysis.requests:
