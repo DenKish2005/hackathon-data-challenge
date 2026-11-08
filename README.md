@@ -5,6 +5,8 @@
 API; `cqa.api:app` и `cqa.backend.main:app` — одно приложение. Оно также обслуживает
 собранный frontend на одном HTTP entry point.
 
+Проверенный локальный запуск на Windows и сценарий показа: [LOCAL_DEMO.md](docs/LOCAL_DEMO.md).
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1

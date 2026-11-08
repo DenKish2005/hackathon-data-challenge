@@ -95,6 +95,19 @@ export default function ConversationAnalysis({
   const rules = dialog.criteriaSnapshot || initialCriteria;
   const results = dialog.results || [];
   const messages = dialog.messages || [];
+  const reviewed =
+    dialog.reviewRevision > 0 ||
+    dialog.originalResults?.some((before) => {
+      const after = results.find(
+        (r) => String(r.criterionId) === String(before.criterionId),
+      );
+      return (
+        after &&
+        (after.answer !== before.answer || after.reason !== before.reason)
+      );
+    }) ||
+    (dialog.reviewRevision === undefined &&
+      typeof dialog.originalScore === "number");
   const ready = dialog.status !== "pending" && results.length > 0;
   const calculation = ready
     ? scoreEvaluation(rules, results)
@@ -219,8 +232,10 @@ export default function ConversationAnalysis({
         role="img"
         aria-label={
           scored
-            ? `Итог ${format(calculation.score)} из 100 баллов`
-            : "Итоговый балл ещё не рассчитан"
+            ? `${needsReview(dialog) ? "Предварительная оценка" : "Итог"} ${format(calculation.score)} из 100 баллов`
+            : ready && !calculation.incomplete
+              ? "Нет применимых критериев с баллом"
+              : "Итоговый балл ещё не рассчитан"
         }
         style={{
           "--score": `${scored ? Math.max(0, Math.min(calculation.score, 100)) : 0}%`,
@@ -234,9 +249,13 @@ export default function ConversationAnalysis({
       <div className="ca-quality-meta">
         <strong>
           {scored
-            ? "Итоговая оценка диалога"
+            ? needsReview(dialog)
+              ? "Предварительная оценка диалога"
+              : "Итоговая оценка диалога"
             : ready
-              ? "Оценка неполная"
+              ? calculation.incomplete
+                ? "Оценка неполная"
+                : "Нет применимых критериев с баллом"
               : "Ожидает оценки"}
         </strong>
         <p>
@@ -279,7 +298,7 @@ export default function ConversationAnalysis({
             </>
           )}
         </span>
-        {dialog.originalScore !== undefined && (
+        {reviewed && (
           <small>До пересмотра: {format(dialog.originalScore)} / 100</small>
         )}
       </div>

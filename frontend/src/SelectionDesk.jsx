@@ -32,7 +32,15 @@ function evaluation(dialog) {
     dialog.criteriaSnapshot || initialCriteria,
     dialog.results,
   );
-  return { ...result, ready: !result.incomplete && result.score !== null };
+  return { ...result, ready: !result.incomplete };
+}
+
+function queueStatus(dialog) {
+  return dialog.status === "pending"
+    ? "pending"
+    : evaluationNeedsReview(dialog)
+      ? "review"
+      : dialog.status;
 }
 
 function isIssue(rule, result) {
@@ -120,7 +128,7 @@ export default function SelectionDesk({
         (queue === "all" ||
           (queue === "critical"
             ? evaluation(dialog).critical
-            : dialog.status === queue)) &&
+            : queueStatus(dialog) === queue)) &&
         `${dialog.id} ${dialog.topic} ${dialog.customer} ${dialog.agent}`
           .toLocaleLowerCase()
           .includes(term),
@@ -141,12 +149,15 @@ export default function SelectionDesk({
       calculation: evaluation(dialog),
     }))
     .filter(({ calculation }) => calculation.ready);
-  const average = assessed.length
-    ? assessed.reduce((sum, item) => sum + item.calculation.score, 0) /
-      assessed.length
+  const scored = assessed.filter(
+    ({ calculation }) => typeof calculation.score === "number",
+  );
+  const average = scored.length
+    ? scored.reduce((sum, item) => sum + item.calculation.score, 0) /
+      scored.length
     : null;
   const needsReview = dialogs.filter(
-    (dialog) => dialog.status === "review",
+    (dialog) => queueStatus(dialog) === "review",
   ).length;
   const pending = dialogs.filter(
     (dialog) => dialog.status === "pending",
@@ -329,7 +340,7 @@ export default function SelectionDesk({
                     {format(score.score)}
                     <small>/100</small>
                   </span>
-                  <DeskStatus status={dialog.status} />
+                  <DeskStatus status={queueStatus(dialog)} />
                 </button>
               );
             })}
@@ -413,9 +424,9 @@ export default function SelectionDesk({
               <small>/100</small>
             </strong>
             <p>
-              {assessed.length
-                ? `На основе ${assessed.length} завершённых оценок`
-                : "Пока нет завершённых оценок"}
+              {scored.length
+                ? `На основе ${scored.length} завершённых оценок с баллом`
+                : "Пока нет числовых оценок"}
             </p>
             <div className="desk-average-scale">
               <span style={{ width: `${average || 0}%` }} />
@@ -481,7 +492,11 @@ export default function SelectionDesk({
         ) : (
           <div className="desk-selected-content">
             <div className="desk-selected-score">
-              <span className="desk-metric-label">Итоговая оценка</span>
+              <span className="desk-metric-label">
+                {evaluationNeedsReview(candidate)
+                  ? "Предварительная оценка"
+                  : "Итоговая оценка"}
+              </span>
               <strong>
                 {format(current.score)}
                 <small>/100</small>
@@ -541,7 +556,11 @@ export default function SelectionDesk({
                 <div className="desk-no-findings">
                   <CheckCircle2 size={19} />
                   <strong>Замечаний не выявлено</strong>
-                  <p>Все применимые критерии выполнены.</p>
+                  <p>
+                    {applicable
+                      ? "Все применимые критерии выполнены."
+                      : "Нет применимых критериев с баллом."}
+                  </p>
                 </div>
               )}
               {findings.length > 2 && (
