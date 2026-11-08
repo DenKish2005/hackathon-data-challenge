@@ -47,6 +47,7 @@ import {
   evaluationLabel,
   isModelEvaluation,
   isMockEvaluation,
+  needsReview,
 } from "./evaluation-state";
 import SelectionDesk from "./SelectionDesk";
 import EvaluationPanel from "./EvaluationPanel";
@@ -375,39 +376,48 @@ export default function App() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, [modal, page, selected]);
-  const evaluated = dialogs.filter(
-      (d) => d.status !== "pending" && typeof d.score === "number",
+  const completed = dialogs.filter(
+      (d) =>
+        d.status !== "pending" &&
+        d.results?.length &&
+        !scoreEvaluation(d.criteriaSnapshot || initialCriteria, d.results)
+          .incomplete,
     ),
+    evaluated = completed.filter((d) => typeof d.score === "number"),
     average = evaluated.length
       ? Math.round(
           evaluated.reduce((s, d) => s + d.score, 0) / evaluated.length,
         )
-      : 0,
+      : null,
     openAppeals = appeals.filter((a) => a.status === "open");
-  const criterionSummary = ["1", "2", "4", "5", "7"].map((id) => {
-    const criterion = initialCriteria.find((c) => c.id === id);
-    const values = evaluated.flatMap((d) => {
-      const r = d.results?.find((r) => r.criterionId === id);
-      if (!r || r.answer === "N/A") return [];
-      const snapshot = (d.criteriaSnapshot || initialCriteria).find(
-        (c) => c.id === id,
-      );
-      return snapshot?.type === "scale" && typeof r.answer === "number"
-        ? [(r.answer / Math.max(...snapshot.scale)) * 100]
-        : [r.answer === "Да" ? 100 : 0];
+  const criterionSummary = criteria
+    .filter((c) => c.type !== "flag" && Number(c.weight) > 0)
+    .map((criterion) => {
+      const id = String(criterion.id);
+      const values = evaluated.flatMap((d) => {
+        const r = d.results?.find((r) => String(r.criterionId) === id);
+        if (!r || r.answer === "N/A") return [];
+        const snapshot = (d.criteriaSnapshot || initialCriteria).find(
+          (c) => String(c.id) === id,
+        );
+        if (!snapshot || snapshot.type === "flag") return [];
+        if (snapshot.type === "scale")
+          return typeof r.answer === "number" &&
+            snapshot.scale.includes(r.answer)
+            ? [(r.answer / Math.max(...snapshot.scale)) * 100]
+            : [];
+        return ["Да", "Нет"].includes(r.answer)
+          ? [r.answer === "Да" ? 100 : 0]
+          : [];
+      });
+      return {
+        id,
+        label: criterion.title,
+        v: values.length
+          ? Math.round(values.reduce((a, b) => a + b, 0) / values.length)
+          : null,
+      };
     });
-    return {
-      label:
-        id === "4"
-          ? "Корректность консультации"
-          : id === "5"
-            ? "Эмпатия"
-            : criterion.title,
-      v: values.length
-        ? Math.round(values.reduce((a, b) => a + b, 0) / values.length)
-        : 0,
-    };
-  });
   function exportData(target = null) {
     const chosen = target?.id ? target : null;
     const b = new Blob(
@@ -751,13 +761,13 @@ export default function App() {
                   <div className="stats-grid">
                     <Stat
                       title="Проанализировано диалогов"
-                      value={evaluated.length.toString().padStart(2, "0")}
+                      value={completed.length.toString().padStart(2, "0")}
                       icon={MessageCircle}
                       note={`из ${dialogs.length} диалогов в наборе`}
                     />
                     <Stat
                       title="Средняя оценка качества"
-                      value={average}
+                      value={average ?? "—"}
                       suffix="/100"
                       icon={Activity}
                       note="по завершённым оценкам"
@@ -770,7 +780,7 @@ export default function App() {
                     <Stat
                       title="Требуют внимания"
                       value={dialogs
-                        .filter((d) => d.status === "review")
+                        .filter((d) => d.status === "review" || needsReview(d))
                         .length.toString()
                         .padStart(2, "0")}
                       icon={ShieldCheck}
@@ -831,19 +841,19 @@ export default function App() {
                       <p className="panel-subtitle">
                         Где всё хорошо, а где есть потенциал
                       </p>
-                      {criterionSummary.map((c, i) => (
-                        <div className="progress-item" key={c.label}>
+                      {criterionSummary.map((c) => (
+                        <div className="progress-item" key={c.id}>
                           <div>
                             <span>{c.label}</span>
                             <strong>
-                              {c.v}
-                              <small>/100</small>
+                              {c.v ?? "Нет данных"}
+                              {c.v !== null && <small>/100</small>}
                             </strong>
                           </div>
                           <div className="progress-track">
                             <span
                               style={{
-                                width: c.v + "%",
+                                width: (c.v ?? 0) + "%",
                                 background: c.v < 90 ? "#dba04b" : undefined,
                               }}
                             />

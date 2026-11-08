@@ -238,6 +238,7 @@ try {
   await expect(
     fresh.getByRole("heading", { name: "Анализ разговора", exact: true }),
   ).toBeVisible();
+  await expect(fresh.getByText(/До пересмотра:/)).toBeVisible();
   await expect(
     fresh
       .getByRole("group", { name: "Результаты критериев" })
@@ -317,5 +318,11 @@ try {
     await ended;
     clearTimeout(timer);
   }
-  await rm(temporary, { recursive: true, force: true });
+  // Windows may briefly retain SQLite/antivirus file handles after process exit.
+  await rm(temporary, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
 }

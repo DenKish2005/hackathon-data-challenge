@@ -190,3 +190,4 @@ async def test_live_driver_never_exceeds_generation_budget(tmp_path, monkeypatch
     output = json.loads((args.output_dir / "predictions.json").read_text(encoding="utf-8"))
     assert output["modelCalls"] == 1
     assert output["records"][0]["status"] == "failed"
+    assert output["records"][0]["errorCode"] == "model_call_budget"

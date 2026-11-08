@@ -2,9 +2,32 @@
 import checklist from "../../src/cqa/checklist.json" with { type: "json" };
 export const initialCriteria = checklist;
 
+// Calculate with decimal fractions, then round once (server: Decimal ROUND_HALF_UP).
+// Binary floating point can turn an exact 1.005 into 1.0049999999999999.
+function fraction(value) {
+  const [coefficient, exponent = "0"] = String(value).toLowerCase().split("e");
+  const [whole, digits = ""] = coefficient.split(".");
+  const places = digits.length - Number(exponent);
+  const numerator = BigInt(whole + digits);
+  return places >= 0
+    ? [numerator, 10n ** BigInt(places)]
+    : [numerator * 10n ** BigInt(-places), 1n];
+}
+
+function add([a, b], [c, d]) {
+  let numerator = a * d + c * b;
+  let denominator = b * d;
+  let x = numerator;
+  let y = denominator;
+  while (y) [x, y] = [y, x % y];
+  numerator /= x;
+  denominator /= x;
+  return [numerator, denominator];
+}
+
 export function scoreEvaluation(criteria, results) {
-  let earned = 0;
-  let available = 0;
+  let earned = [0n, 1n];
+  let available = [0n, 1n];
   let critical = false;
   for (const criterion of criteria) {
     const result = results.find(
@@ -26,19 +49,35 @@ export function scoreEvaluation(criteria, results) {
     if (criterion.type === "scale") {
       const levels = criterion.scale.map(Number);
       const max = Math.max(...levels);
-      if (typeof value !== "number" || !levels.includes(value) || max <= 0)
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        !levels.every(Number.isFinite) ||
+        !levels.includes(value) ||
+        max <= 0
+      )
         return { score: null, critical, incomplete: true };
-      normalized = value / max;
+      const [a, b] = fraction(value);
+      const [c, d] = fraction(max);
+      normalized = [a * d, b * c];
     } else {
       if (!["Да", "Нет"].includes(value))
         return { score: null, critical, incomplete: true };
-      normalized = value === "Да" ? 1 : 0;
+      normalized = [value === "Да" ? 1n : 0n, 1n];
     }
-    earned += weight * normalized;
-    available += weight;
+    const decimalWeight = fraction(weight);
+    earned = add(earned, [
+      decimalWeight[0] * normalized[0],
+      decimalWeight[1] * normalized[1],
+    ]);
+    available = add(available, decimalWeight);
   }
+  const numerator = earned[0] * available[1] * 10000n;
+  const denominator = earned[1] * available[0];
   return {
-    score: available ? Math.round((earned / available) * 10000) / 100 : null,
+    score: denominator
+      ? Number((2n * numerator + denominator) / (2n * denominator)) / 100
+      : null,
     critical,
   };
 }

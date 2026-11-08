@@ -53,6 +53,7 @@ jobs:
       - run: node tests/smoke.mjs
       - run: node tests/evaluation.mjs
       - run: node tests/reliability.mjs
+      - run: node tests/hardening.mjs
       - run: node --test ../tests/vercel_proxy.test.cjs
       - uses: actions/setup-python@v5
         with:
@@ -63,3 +64,4 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install -e .
       - run: node tests/backend-flow.mjs
+      - run: node tests/scoring.mjs

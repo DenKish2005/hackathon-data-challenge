@@ -56,6 +56,7 @@ def run():
     parser.add_argument("--configure-source", action="store_true")
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--python", type=Path, help="Reuse an existing Python environment")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
@@ -74,16 +75,21 @@ def run():
         args.env_file.chmod(0o600)
         print("Source saved in the private local configuration.")
     environment = {**os.environ, **settings}
+    environment["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + environment.get("PYTHONPATH", "")
     environment.setdefault("LLM_PROVIDER", "ollama")
     environment.setdefault("LLM_BASE_URL", "http://127.0.0.1:11434")
-    environment.setdefault("LLM_MODEL", "qwen3:4b")
+    environment.setdefault("LLM_MODEL", "qwen3:4b-instruct")
     environment.setdefault("LLM_CONCURRENCY", "1")
     environment.setdefault("LLM_TIMEOUT", "600")
     environment.setdefault("CQA_JOB_TIMEOUT", "1800")
     environment.setdefault("LLM_CONTEXT_SIZE", "65536")
     environment.setdefault("LLM_OUTPUT_LIMIT", "4096")
     environment.setdefault("CQA_STRATEGY", "two_pass")
-    python = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    python = args.python or ROOT / ".venv" / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
+    if args.python and not python.is_file():
+        raise ValueError("The --python interpreter does not exist")
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if args.check:
         print(
@@ -91,6 +97,7 @@ def run():
                 {
                     "project": str(ROOT),
                     "python": str(python),
+                    "python_exists": python.is_file(),
                     "npm_available": bool(npm),
                     "frontend_built": (ROOT / "frontend/dist/index.html").exists(),
                     "source_configured": bool(
@@ -99,6 +106,9 @@ def run():
                     "provider": environment["LLM_PROVIDER"],
                     "model": environment["LLM_MODEL"],
                     "strategy": environment["CQA_STRATEGY"],
+                    "context_size": int(environment["LLM_CONTEXT_SIZE"]),
+                    "output_limit": int(environment["LLM_OUTPUT_LIMIT"]),
+                    "critic_enabled": environment.get("CQA_ENABLE_CRITIC", "true") == "true",
                     "local_url": f"http://{args.host}:{args.port}",
                 },
                 ensure_ascii=False,

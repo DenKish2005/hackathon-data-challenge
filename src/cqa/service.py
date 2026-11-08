@@ -390,6 +390,17 @@ def translate_analysis_ids(analysis, mapping):
 
 def merge_analysis(request, base, replacement, selected):
     """Merge only selected findings/decisions, retaining immutable unrelated Draft results."""
+    selected_ids = {c.id for c in selected}
+    if (
+        len(replacement.results) != len(selected_ids)
+        or {r.criterionId for r in replacement.results} != selected_ids
+    ):
+        raise ValueError("Replacement must cover exactly the selected criterion IDs")
+    if replacement.applicability and (
+        len(replacement.applicability) != len(selected_ids)
+        or {d.criterionId for d in replacement.applicability} != selected_ids
+    ):
+        raise ValueError("Replacement applicability must cover exactly the selected IDs")
     findings = {r.criterionId: r for r in replacement.results}
     decisions = {d.criterionId: d for d in replacement.applicability}
     previous_decisions = {d.criterionId: d for d in base.applicability}
@@ -556,7 +567,7 @@ async def analyze_phase(request, messages, calls, phase, generate, analysis=None
                 call_messages.append(
                     {"role": "user", "content": critic_instruction(focused.criteria)}
                 )
-        response = await generate(call_messages, schema=analysis_schema(focused))
+        response = await generate(call_messages, schema=compact_analysis_schema(focused))
         calls.append(
             {
                 "phase": phase,
@@ -576,12 +587,16 @@ async def analyze_phase(request, messages, calls, phase, generate, analysis=None
                 },
             }
         )
+        # The Foundation worker retains this safe trace even when validation ultimately fails.
+        if isinstance(response.get("_diagnostics"), dict):
+            response["_diagnostics"]["validation"] = calls[-1]
         raw = response["message"]["content"]
         try:
             candidate = parse_analysis(raw, focused)
             if pending:
-                validate_analysis(focused, candidate)
                 candidate = merge_analysis(request, analysis, candidate, focused.criteria)
+            # Keep every parsed correction before checking the combined result. Otherwise
+            # fixing A while B still fails loses the fixed A and creates a repair ping-pong.
             analysis = candidate
             validate_analysis(request, analysis)
             if phase == "critic":
@@ -591,6 +606,9 @@ async def analyze_phase(request, messages, calls, phase, generate, analysis=None
             calls[-1]["validated"] = False
             calls[-1]["validationIssue"] = (
                 "grounding" if isinstance(exc, GroundingError) else "structure"
+            )
+            calls[-1]["invalidCriterionIds"] = (
+                sorted(exc.issues) if isinstance(exc, GroundingError) else []
             )
             if attempt == 2:
                 raise ValueError("Модель не вернула проверяемую оценку после исправлений") from exc
@@ -617,12 +635,8 @@ async def analyze_phase(request, messages, calls, phase, generate, analysis=None
             if pending:
                 repair_feedback = feedback
             else:
-                messages.extend(
-                    [
-                        {"role": "assistant", "content": raw},
-                        {"role": "user", "content": feedback},
-                    ]
-                )
+                # Do not recirculate a verbose invalid answer as an anchoring assistant turn.
+                messages = [*messages, {"role": "user", "content": feedback}]
             continue
         break
     return analysis
@@ -1075,14 +1089,137 @@ def analysis_schema(request):
     return schema
 
 
+def exact_source_spans(messages, *, limit=64, width=160):
+    """Bounded quote choices from actual input; never a classifier or an answer lookup."""
+    spans = set()
+    for message in messages:
+        text = message.text
+        clauses = list(re.finditer(r"[^.!?;\n]+[.!?;]?", text))
+        for index, clause in enumerate(clauses):
+            part = clause.group().strip()
+            if len(part) <= width:
+                if part:
+                    spans.add(part)
+                if index + 1 < len(clauses):
+                    pair = text[clause.start() : clauses[index + 1].end()].strip()
+                    if len(pair) <= width:
+                        spans.add(pair)
+            else:
+                # Prefer word boundaries, retaining literal source substrings.
+                start = clause.start()
+                while start < clause.end():
+                    end = min(start + width, clause.end())
+                    boundary = text.rfind(" ", start, end)
+                    if end < clause.end() and boundary > start:
+                        end = boundary
+                    span = text[start:end].strip()
+                    if span:
+                        spans.add(span)
+                    start = end
+                    while start < clause.end() and text[start].isspace():
+                        start += 1
+            if len(spans) > limit:
+                return None  # Keep unconstrained verbatim quoting for large inputs.
+    return sorted(spans) or None
+
+
+def compact_analysis_schema(request):
+    """Small model-only wire format; public Analysis/evidence validation is unchanged."""
+    schema = analysis_schema(request)
+    schema["properties"].pop("applicability")
+    schema["required"].remove("applicability")
+    schema["$defs"].pop("ApplicabilityDecision", None)
+    schema["properties"]["summary"]["maxLength"] = 160
+    schema["$defs"]["Finding_reason"]["maxLength"] = 240
+    schema["$defs"]["Finding_reviewReason"]["maxLength"] = 140
+    schema["$defs"]["Finding_uncertaintyNotes"].update(maxItems=1)
+    schema["$defs"]["Finding_uncertaintyNotes"]["items"]["maxLength"] = 140
+    schema["$defs"]["Finding_evidence"]["maxItems"] = min(2, len(request.messages))
+    schema["$defs"]["Evidence"]["properties"]["quote"]["maxLength"] = 160
+    schema["$defs"]["Evidence"]["properties"]["relevance"]["maxLength"] = 120
+    spans = exact_source_spans(request.messages)
+    if spans:
+        schema["$defs"]["ExactSourceQuote"] = {"type": "string", "enum": spans}
+        schema["$defs"]["Evidence"]["properties"]["quote"] = {"$ref": "#/$defs/ExactSourceQuote"}
+    else:
+        schema["$defs"]["Evidence"]["properties"]["quote"]["maxLength"] = 300
+    result = schema["properties"]["results"]
+    variants = result.get("prefixItems", [result.get("items")])
+    compact = []
+    for variant in variants:
+        modes = []
+        for mode in variant.get("anyOf", [variant]):
+            answers = mode["properties"]["answer"]["enum"]
+            branch = copy.deepcopy(mode)
+            props = branch["properties"]
+            props.pop("confidence", None)  # Parser supplies the legacy null.
+            for key in ("reviewRecommended", "reviewReason", "uncertaintyNotes"):
+                props.pop(key, None)
+            if "violationType" not in branch["required"]:
+                props.pop("violationType", None)
+            if props["quote"].get("const") != "":
+                props["quote"] = (
+                    {"$ref": "#/$defs/ExactSourceQuote"}
+                    if spans
+                    else {"type": "string", "minLength": 1, "maxLength": 300}
+                )
+            branch["properties"] = {
+                "criterionId": props.pop("criterionId"),
+                "applicability": {
+                    "enum": ["applicable", "uncertain"]
+                    + (["not_applicable"] if "N/A" in answers else [])
+                },
+                **props,
+                "review": {"type": "string", "maxLength": 140},
+            }
+            branch["required"] = [
+                k
+                for k in branch["required"]
+                if k not in {"uncertaintyNotes", "reviewRecommended", "reviewReason"}
+            ]
+            branch["required"].extend(["applicability", "review"])
+            modes.append(branch)
+        compact.append({"anyOf": modes} if len(modes) > 1 else modes[0])
+    if "prefixItems" in result:
+        result["prefixItems"] = compact
+    else:
+        result["items"] = compact[0]
+    return schema
+
+
 def parse_analysis(raw, request):
     """Normalize only exact legal model-wire score strings; public validation stays strict."""
     data = json.loads(raw)
     criteria = {c.id: c for c in request.criteria}
     if isinstance(data, dict) and isinstance(data.get("results"), list):
+        if any(isinstance(r, dict) and "applicability" in r for r in data["results"]):
+            if "applicability" in data or not all(
+                isinstance(r, dict) and "applicability" in r for r in data["results"]
+            ):
+                raise ValueError("Do not mix compact and legacy applicability decisions")
+            data["applicability"] = [
+                {
+                    "criterionId": r["criterionId"],
+                    "status": r.pop("applicability"),
+                    "reason": r["reason"],
+                    "messageIds": r["checkedMessageIds"],
+                }
+                for r in data["results"]
+            ]
         for result in data["results"]:
             if not isinstance(result, dict) or not isinstance(result.get("criterionId"), str):
                 continue
+            if "review" in result:
+                note = result.pop("review")
+                if not isinstance(note, str) or any(
+                    k in result for k in ("reviewRecommended", "reviewReason", "uncertaintyNotes")
+                ):
+                    raise ValueError("Do not mix compact and legacy review metadata")
+                result.update(
+                    reviewRecommended=bool(note.strip()),
+                    reviewReason=note,
+                    uncertaintyNotes=[note] if note.strip() else [],
+                )
             criterion = criteria.get(result["criterionId"])
             if criterion and criterion.type == "scale" and isinstance(result.get("answer"), str):
                 legal = {wire_answer(v): v for v in criterion.scale}
